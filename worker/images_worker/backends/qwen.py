@@ -41,7 +41,7 @@ class QwenBackend(Backend):
     name = "qwen"
 
     def _load_model(self, spec: ModelSpec):
-        # Квантизация — решение уровня хоста, не модели: на br-01 в .env стоит
+        # Квантизация — решение уровня хоста, не модели: на node-a в .env стоит
         # QI_QUANTIZATION=none (веса уже FP8), на другой карте может понадобиться nf4.
         quantization = os.environ.get("IMG_QWEN_QUANTIZATION", "none").strip().lower()
         dtype = torch.bfloat16

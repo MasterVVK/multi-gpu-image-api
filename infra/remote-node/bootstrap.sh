@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Развёртывание воркеров на nv-02. Запускать НА nv-02.
+# Развёртывание воркеров на node-b. Запускать НА node-b.
 #
-# Что делает: создаёт venv под выбранные бэкенды, ставит зафиксированные с br-01
+# Что делает: создаёт venv под выбранные бэкенды, ставит зафиксированные с node-a
 # версии, подключает пакет images_worker .pth-файлом и раскладывает юниты.
-# Веса не качает — их привозит scripts/sync_to_nv02.sh с br-01 по LAN.
+# Веса не качает — их привозит scripts/sync_to_node.sh с node-a по LAN.
 #
 # Чего НЕ делает и почему:
-#   * не копирует venv с br-01 — в них зашиты абсолютные пути и 25 ГБ колёс;
+#   * не копирует venv с node-a — в них зашиты абсолютные пути и 25 ГБ колёс;
 #   * не ставит ollama и ничего для Prompt Enhancer — PE живёт только в шлюзе.
 #
-# Особенности nv-02: Python 3.10 (на br-01 — 3.12), драйвер 580.173.02,
+# Особенности node-b: Python 3.10 (на node-a — 3.12), драйвер 580.173.02,
 # GPU делится с RAG/TTS/whisper и собственной ollama.
 #
 #   BACKENDS="hidream zimage" WORKER_TOKEN=... ./bootstrap.sh
@@ -19,7 +19,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKENDS="${BACKENDS:-hidream zimage}"
-NODE="${IMG_WORKER_NODE:-nv-02}"
+NODE="${IMG_WORKER_NODE:-node-b}"
 PROJECTS_ROOT="${IMG_PROJECTS_ROOT:-/home/user}"
 WORKER_ROOT="${WORKER_ROOT:-$PROJECTS_ROOT/images-api/worker}"
 TOKEN="${WORKER_TOKEN:-}"
@@ -39,7 +39,7 @@ PIP_PROXY="${PIP_PROXY:-}"
 
 
 if [[ -z "$TOKEN" ]]; then
-    echo "Задайте WORKER_TOKEN — тот же IMG_WORKER_TOKEN, что в .env шлюза на br-01" >&2
+    echo "Задайте WORKER_TOKEN — тот же IMG_WORKER_TOKEN, что в .env шлюза на node-a" >&2
     exit 1
 fi
 
@@ -52,7 +52,7 @@ for backend in $BACKENDS; do
     root="${PROJECT[$backend]}"
     lock="$HERE/requirements/$backend.lock.txt"
 
-    [[ -f "$lock" ]] || { echo "нет $lock — снимите его на br-01 через scripts/capture_venv_locks.sh"; exit 1; }
+    [[ -f "$lock" ]] || { echo "нет $lock — снимите его на node-a через scripts/capture_venv_locks.sh"; exit 1; }
 
     echo "=== $backend → $root"
     mkdir -p "$root"
@@ -81,7 +81,7 @@ for backend in $BACKENDS; do
     # Из лока берём ТОЧНЫЕ версии только для пакетов, которые определяют
     # поведение модели. Остальное ставим по именам, без версий.
     #
-    # Почему не весь лок целиком: он снят на br-01 с Python 3.12, и часть
+    # Почему не весь лок целиком: он снят на node-a с Python 3.12, и часть
     # транзитивных пакетов там в версиях, которых для 3.10 просто не существует
     # (networkx==3.6.1 требует >=3.11 — на этом первая попытка и встала).
     # Точные версии транзитивных зависимостей нам и не нужны: важны стеки
@@ -174,9 +174,9 @@ sudo install -m 0644 "$WORKER_ROOT/../infra/systemd/images-worker@.service" /etc
 sudo systemctl daemon-reload
 
 echo
-echo "Готово. Дальше на nv-02:"
+echo "Готово. Дальше на node-b:"
 for backend in $BACKENDS; do
     echo "  sudo systemctl enable --now images-worker@$backend"
 done
 echo
-echo "Затем на br-01 зарегистрировать узел (см. README, раздел про nv-02)."
+echo "Затем на node-a зарегистрировать узел (см. README, раздел про node-b)."

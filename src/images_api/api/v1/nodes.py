@@ -1,9 +1,9 @@
 """Управление GPU-узлами во время работы, без редеплоя.
 
-Порядок ввода nv-02 в строй:
-    POST  /api/v1/nodes            {"name": "nv-02", ..., "enabled": false}
-    POST  /api/v1/nodes/nv-02/refresh
-    PATCH /api/v1/nodes/nv-02      {"enabled": true}
+Порядок ввода node-b в строй:
+    POST  /api/v1/nodes            {"name": "node-b", ..., "enabled": false}
+    POST  /api/v1/nodes/node-b/refresh
+    PATCH /api/v1/nodes/node-b      {"enabled": true}
 Вывод из строя — {"draining": true}: узел доработает текущую задачу и больше
 новых не возьмёт.
 """

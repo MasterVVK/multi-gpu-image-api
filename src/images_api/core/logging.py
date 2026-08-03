@@ -1,7 +1,7 @@
 """structlog → JSON, с X-Request-Id в каждой строке.
 
-Форма из /home/user/vedora/backend/app/core/logging.py: merge_contextvars первым,
-ISO-время в UTC, ensure_ascii=False (логи читают люди, и они на русском).
+merge_contextvars первым, ISO-время в UTC, ensure_ascii=False
+(логи читают люди, и там встречается кириллица).
 Логгеры называются images_api.<компонент>, события — snake_case-глаголы:
 task_enqueued, lease_acquired, vram_wait_started, worker_restarted.
 """

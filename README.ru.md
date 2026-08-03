@@ -41,7 +41,7 @@ VRAM для карт, которыми вы владеете **не единол
                         │ httpx                    │ httpx через ssh -L
               127.0.0.1:8101..8104          127.0.0.1:18101..18104
               ┌──────────────────┐          ┌──────────────────┐
-              │ узел br-01       │          │ узел nv-02       │
+              │ узел node-a      │          │ узел node-b      │
               │ 8101 qwen        │          │ 18101 qwen       │
               │ 8102 zimage      │          │ 18102 zimage     │
               │ 8103 ernie       │          │ 18104 hidream    │
@@ -94,7 +94,7 @@ API править не нужно.
    и текстом, который называет, кто именно занял карту:
 
    ```
-   не дождались свободной VRAM за 600 с — br-01: free 11781 МБ, резерв 1024 МБ,
+   не дождались свободной VRAM за 600 с — node-a: free 11781 МБ, резерв 1024 МБ,
    нужно 21500 МБ, ollama держит qwen3-embedding:8b (6.3 ГБ),
    NuExtract3-GGUF:Q4_K_M (3.9 ГБ), qwen2.5:0.5b (0.7 ГБ)
    ```
@@ -198,22 +198,22 @@ sudo systemctl enable --now images-worker@{qwen,zimage,ernie,hidream} images-api
 ```bash
 # на первом узле: снять версии, отправить код и веса по LAN
 ./scripts/capture_venv_locks.sh
-REMOTE=user@nv-02 MODELS="hidream zimage" ./scripts/sync_to_nv02.sh
+REMOTE=user@node-b MODELS="hidream zimage" ./scripts/sync_to_node.sh
 
 # на втором узле: пересобрать venv из тех же версий
-cd images-api/infra/nv-02
+cd images-api/infra/remote-node
 BACKENDS="hidream zimage" WORKER_TOKEN=<тот же, что у шлюза> ./bootstrap.sh
 sudo systemctl enable --now images-worker@hidream images-worker@zimage
 
 # обратно на первом: туннель, затем регистрация узла — без рестарта шлюза
-sudo systemctl enable --now images-tunnel@nv02
+sudo systemctl enable --now images-tunnel@node-b
 curl -sS -X POST localhost:8010/api/v1/nodes -H "X-API-Key: $KEY" \
   -H 'Content-Type: application/json' -d '{
-    "name":"nv-02","kind":"remote",
+    "name":"node-b","kind":"remote",
     "base_urls":{"hidream":"http://127.0.0.1:18104","zimage":"http://127.0.0.1:18102"},
     "vram_reserve_mb":4096,"enabled":false}'
-curl -sS -X POST localhost:8010/api/v1/nodes/nv-02/refresh -H "X-API-Key: $KEY"
-curl -sS -X PATCH localhost:8010/api/v1/nodes/nv-02 -H "X-API-Key: $KEY" \
+curl -sS -X POST localhost:8010/api/v1/nodes/node-b/refresh -H "X-API-Key: $KEY"
+curl -sS -X PATCH localhost:8010/api/v1/nodes/node-b -H "X-API-Key: $KEY" \
   -H 'Content-Type: application/json' -d '{"enabled":true}'
 ```
 

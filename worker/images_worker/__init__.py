@@ -5,7 +5,7 @@
 зависимостей. Всё, что тянет torch, лежит в `images_worker.backends` и
 импортируется лениво, уже внутри воркера.
 
-Совместимость: Python 3.10+ (на nv-02 стоит 3.10.12, на br-01 — 3.12.7).
+Совместимость: Python 3.10+ (на node-b стоит 3.10.12, на node-a — 3.12.7).
 Отсюда `from __future__ import annotations`, `timezone.utc` вместо `datetime.UTC`
 и отсутствие `match`.
 """

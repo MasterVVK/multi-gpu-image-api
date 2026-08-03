@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Перенос кода и весов на nv-02 по LAN.
+# Перенос кода и весов на node-b по LAN.
 #
 # rsync, а не tar|ssh: кэш HuggingFace построен на симлинках и хардлинках на
 # blob-файлы, и -aH переносит это как есть (tar потребовал бы возни с
@@ -8,9 +8,9 @@
 #
 # Качать заново через SOCKS-прокси бессмысленно: те же байты лежат в метре отсюда.
 #
-#   REMOTE=user@nv-02 ./scripts/sync_to_nv02.sh              # код + веса hidream и zimage
-#   REMOTE=user@nv-02 MODELS="hidream" ./scripts/sync_to_nv02.sh
-#   REMOTE=user@nv-02 DRY=1 ./scripts/sync_to_nv02.sh        # только показать объём
+#   REMOTE=user@node-b ./scripts/sync_to_node.sh              # код + веса hidream и zimage
+#   REMOTE=user@node-b MODELS="hidream" ./scripts/sync_to_node.sh
+#   REMOTE=user@node-b DRY=1 ./scripts/sync_to_node.sh        # только показать объём
 
 set -euo pipefail
 
@@ -21,6 +21,7 @@ REMOTE="${REMOTE:?укажите REMOTE=user@host второго узла}"
 SSH_PORT="${SSH_PORT:-22}"
 MODELS="${MODELS:-hidream zimage}"
 HF="$HOME/.cache/huggingface/hub"
+PROJECTS_ROOT="${IMG_PROJECTS_ROOT:-/home/user}"
 RSYNC_OPTS=(-aH --info=progress2 --partial -e "ssh -p $SSH_PORT")
 [[ -n "${DRY:-}" ]] && RSYNC_OPTS+=(--dry-run)
 
@@ -28,29 +29,29 @@ command -v rsync >/dev/null || { echo "нет rsync: sudo apt install rsync"; ex
 ssh -p "$SSH_PORT" -o BatchMode=yes -o ConnectTimeout=8 "$REMOTE" true \
     || { echo "нет доступа по ssh к $REMOTE"; exit 1; }
 
-echo "=== свободно на nv-02"
+echo "=== свободно на node-b"
 ssh -p "$SSH_PORT" "$REMOTE" 'df -h /home | tail -1'
 
 echo
 echo "=== код images-api (без venv, весов и выдачи)"
-ssh -p "$SSH_PORT" "$REMOTE" 'mkdir -p /home/user/images-api'
+ssh -p "$SSH_PORT" "$REMOTE" "mkdir -p $PROJECTS_ROOT/images-api"
 rsync "${RSYNC_OPTS[@]}" \
     --exclude '.venv/' --exclude 'outputs/' --exclude 'data/' \
     --exclude '__pycache__/' --exclude '.env' \
     "$ROOT/worker" "$ROOT/infra" "$ROOT/scripts" "$ROOT/README.md" \
-    "$REMOTE:/home/user/images-api/"
+    "$REMOTE:$PROJECTS_ROOT/images-api/"
 
 for model in $MODELS; do
     echo
     case "$model" in
         hidream)
             echo "=== веса hidream (~33 ГБ, локальный каталог)"
-            ssh -p "$SSH_PORT" "$REMOTE" 'mkdir -p /home/user/HiDream-O1-Image'
-            # models/ и prompt_agent.py — вендорный код пайплайна, без него бэкенд не заработает.
+            ssh -p "$SSH_PORT" "$REMOTE" "mkdir -p $PROJECTS_ROOT/HiDream-O1-Image"
+            # models/ — вендорный код пайплайна, без него бэкенд не заработает.
             rsync "${RSYNC_OPTS[@]}" \
-                /home/user/HiDream-O1-Image/weights \
-                /home/user/HiDream-O1-Image/models \
-                "$REMOTE:/home/user/HiDream-O1-Image/"
+                "$PROJECTS_ROOT/HiDream-O1-Image/weights" \
+                "$PROJECTS_ROOT/HiDream-O1-Image/models" \
+                "$REMOTE:$PROJECTS_ROOT/HiDream-O1-Image/"
             ;;
         zimage)
             echo "=== веса z-image (~31 ГБ, кэш HuggingFace)"
@@ -72,6 +73,6 @@ for model in $MODELS; do
 done
 
 echo
-echo "Готово. Дальше на nv-02:"
-echo "  cd /home/user/images-api/infra/nv-02"
+echo "Готово. Дальше на node-b:"
+echo "  cd $PROJECTS_ROOT/images-api/infra/remote-node"
 echo "  BACKENDS=\"$MODELS\" WORKER_TOKEN=<IMG_WORKER_TOKEN из .env> ./bootstrap.sh"

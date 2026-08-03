@@ -14,14 +14,15 @@
 set -euo pipefail
 
 WORKER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../worker" && pwd)"
+PROJECTS_ROOT="${IMG_PROJECTS_ROOT:-/home/user}"
 PTH_NAME="images_worker.pth"
 
 VENVS=(
-    /home/user/qi-api/venv
-    /home/user/Z-Image-Turbo/venv
-    /home/user/ERNIE-Image/venv
-    /home/user/HiDream-O1-Image/venv
-    /home/user/images-api/.venv
+    "$PROJECTS_ROOT/qi-api/venv"
+    "$PROJECTS_ROOT/Z-Image-Turbo/venv"
+    "$PROJECTS_ROOT/ERNIE-Image/venv"
+    "$PROJECTS_ROOT/HiDream-O1-Image/venv"
+    "$(cd "$WORKER_DIR/.." && pwd)/.venv"
 )
 
 UNINSTALL=0

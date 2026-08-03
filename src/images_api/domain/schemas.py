@@ -97,7 +97,7 @@ class GenerateRequest(BaseModel):
         "на чужом GPU — VRAM наших карт не занимает.",
     )
     priority: int = Field(default=100, ge=0, le=1000, description="Меньше — раньше")
-    node: str | None = Field(default=None, description="Принудительный узел (br-01 | nv-02)")
+    node: str | None = Field(default=None, description="Принудительный узел (node-a | node-b)")
     idempotency_key: str | None = Field(default=None, max_length=128)
 
     @model_validator(mode="after")

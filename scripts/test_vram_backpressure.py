@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -33,7 +34,9 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-HOG_VENV = "/home/user/HiDream-O1-Image/venv/bin/python"
+PROJECTS_ROOT = os.environ.get("IMG_PROJECTS_ROOT", "/home/user")
+# Любой venv с torch подойдёт: этот процесс только занимает VRAM.
+HOG_VENV = os.environ.get("HOG_PYTHON", f"{PROJECTS_ROOT}/HiDream-O1-Image/venv/bin/python")
 
 HOG_CODE = """
 import sys, time

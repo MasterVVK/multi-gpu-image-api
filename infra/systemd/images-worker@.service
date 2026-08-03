@@ -9,6 +9,9 @@
 # Веса берутся из кэша HuggingFace, а вендорный код HiDream подключается
 # явным путём из IMG_HIDREAM_REPO_DIR.
 
+# Пути ниже заданы буквально: systemd не подставляет переменные в
+# WorkingDirectory и ExecStart. Если проект лежит не в /home/user —
+# поправьте их здесь, это единственное место.
 [Unit]
 Description=images-api worker: %i
 After=network.target

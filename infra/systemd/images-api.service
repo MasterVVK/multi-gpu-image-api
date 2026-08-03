@@ -4,6 +4,9 @@
 # После старта он приводит узлы в известное состояние (выгружает всё, что
 # осталось от прошлой жизни процесса), поэтому запускаться должен ПОСЛЕ воркеров.
 
+# Пути ниже заданы буквально: systemd не подставляет переменные в
+# WorkingDirectory и ExecStart. Если проект лежит не в /home/user —
+# поправьте их здесь, это единственное место.
 [Unit]
 Description=images-api gateway
 After=network.target images-worker@qwen.service images-worker@zimage.service images-worker@ernie.service images-worker@hidream.service

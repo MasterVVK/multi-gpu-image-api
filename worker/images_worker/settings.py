@@ -60,7 +60,7 @@ def load_settings() -> WorkerSettings:
 
     return WorkerSettings(
         backend=backend,
-        node=_str("IMG_WORKER_NODE", "br-01"),
+        node=_str("IMG_WORKER_NODE", "node-a"),
         # Только петля: наружу воркеры не смотрят никогда, удалённый доступ —
         # исключительно через ssh-туннель шлюза.
         host=_str("IMG_WORKER_HOST", "127.0.0.1"),

@@ -1,7 +1,7 @@
 """Фабрика приложения.
 
-Форма из /home/user/vedora/backend/app/main.py: create_app(), middleware
-запроса, единые обработчики ошибок, роутеры подключаются явно.
+create_app(), middleware запроса, единые обработчики ошибок,
+роутеры подключаются явно.
 """
 
 from __future__ import annotations

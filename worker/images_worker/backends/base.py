@@ -36,7 +36,7 @@ def weights_present(spec: ModelSpec) -> bool:
     """Есть ли веса модели на этом хосте — без обращения в сеть.
 
     Нужно для `supported_models` в /status: шлюз строит из этого таблицу
-    node_models, и «на nv-02 есть hidream, но нет ernie» получается само,
+    node_models, и «на node-b есть hidream, но нет ernie» получается само,
     без единой строчки конфигурации.
     """
     if spec.local_path:

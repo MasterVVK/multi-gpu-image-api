@@ -39,7 +39,7 @@
                         │ httpx                    │ httpx 经 ssh -L
               127.0.0.1:8101..8104          127.0.0.1:18101..18104
               ┌──────────────────┐          ┌──────────────────┐
-              │ 节点 br-01       │          │ 节点 nv-02       │
+              │ 节点 node-a      │          │ 节点 node-b      │
               │ 8101 qwen        │          │ 18101 qwen       │
               │ 8102 zimage      │          │ 18102 zimage     │
               │ 8103 ernie       │          │ 18104 hidream    │
@@ -88,7 +88,7 @@
    `error_code=vram_unavailable` 结束，并附上究竟是谁占着卡：
 
    ```
-   等待空闲显存 600 秒未果 —— br-01: 空闲 11781 MB，预留 1024 MB，
+   等待空闲显存 600 秒未果 —— node-a: 空闲 11781 MB，预留 1024 MB，
    需要 21500 MB，ollama 占用 qwen3-embedding:8b (6.3 GB)、
    NuExtract3-GGUF:Q4_K_M (3.9 GB)、qwen2.5:0.5b (0.7 GB)
    ```
@@ -187,22 +187,22 @@ sudo systemctl enable --now images-worker@{qwen,zimage,ernie,hidream} images-api
 ```bash
 # 在主节点：固化版本，然后通过局域网发送代码和权重
 ./scripts/capture_venv_locks.sh
-REMOTE=user@nv-02 MODELS="hidream zimage" ./scripts/sync_to_nv02.sh
+REMOTE=user@node-b MODELS="hidream zimage" ./scripts/sync_to_node.sh
 
 # 在第二个节点：按同样的版本重建 venv
-cd images-api/infra/nv-02
+cd images-api/infra/remote-node
 BACKENDS="hidream zimage" WORKER_TOKEN=<与网关相同> ./bootstrap.sh
 sudo systemctl enable --now images-worker@hidream images-worker@zimage
 
 # 回到主节点：建隧道，然后注册节点——无需重启网关
-sudo systemctl enable --now images-tunnel@nv02
+sudo systemctl enable --now images-tunnel@node-b
 curl -sS -X POST localhost:8010/api/v1/nodes -H "X-API-Key: $KEY" \
   -H 'Content-Type: application/json' -d '{
-    "name":"nv-02","kind":"remote",
+    "name":"node-b","kind":"remote",
     "base_urls":{"hidream":"http://127.0.0.1:18104","zimage":"http://127.0.0.1:18102"},
     "vram_reserve_mb":4096,"enabled":false}'
-curl -sS -X POST localhost:8010/api/v1/nodes/nv-02/refresh -H "X-API-Key: $KEY"
-curl -sS -X PATCH localhost:8010/api/v1/nodes/nv-02 -H "X-API-Key: $KEY" \
+curl -sS -X POST localhost:8010/api/v1/nodes/node-b/refresh -H "X-API-Key: $KEY"
+curl -sS -X PATCH localhost:8010/api/v1/nodes/node-b -H "X-API-Key: $KEY" \
   -H 'Content-Type: application/json' -d '{"enabled":true}'
 ```
 

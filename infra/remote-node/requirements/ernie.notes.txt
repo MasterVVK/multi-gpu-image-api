@@ -1,6 +1,6 @@
-# Снято с br-01 2026-08-03 из /home/user/ERNIE-Image/venv
+# Снято с node-a 2026-08-03 из /home/user/ERNIE-Image/venv
 # python: Python 3.12.7
-# ВНИМАНИЕ: на nv-02 Python 3.10 — колёса нужны под cp310.
+# ВНИМАНИЕ: на node-b Python 3.10 — колёса нужны под cp310.
 #   torch==2.5.1+cu121
 #   torchvision==0.20.1+cu121
 #   transformers==5.5.4

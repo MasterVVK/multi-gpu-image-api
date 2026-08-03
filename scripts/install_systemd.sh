@@ -8,7 +8,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_DIR=/etc/images-api
-NODE="${IMG_WORKER_NODE:-br-01}"
+NODE="${IMG_WORKER_NODE:-node-a}"
 PROJECTS_ROOT="${IMG_PROJECTS_ROOT:-/home/user}"
 
 # SOCKS-прокси для докачки весов с HuggingFace. Пустые по умолчанию — задайте,

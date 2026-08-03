@@ -2,8 +2,8 @@
 --
 -- SQLite, а не Postgres/Redis:
 --   * Redis на машине нет вовсе;
---   * Postgres есть, но он принадлежит vedora — второй потребитель создал бы
---     связность между проектами и зависимость по порядку старта ради нуля выгоды;
+--   * Postgres, если он и есть, обычно принадлежит соседнему проекту — второй
+--     потребитель создал бы связность и зависимость по порядку старта ради нуля выгоды;
 --   * шлюз однопроцессный (--workers 1), задач десятки в сутки.
 -- WAL закрывает главный дефект прежней схемы: очередь переживает рестарт,
 -- раньше все четыре сервиса держали задачи в обычном dict в памяти.
@@ -87,8 +87,8 @@ CREATE TABLE IF NOT EXISTS nodes (
 
     gpu_total_mb        INTEGER,
     -- Запас под соседей по карте, которых мы не контролируем.
-    -- br-01: 2048 (probe-модель ollama ~1000 МБ + X + фрагментация).
-    -- nv-02: 4096 (RAG/TTS/whisper/chromium, всплески крупнее).
+    -- node-a: 2048 (probe-модель ollama ~1000 МБ + X + фрагментация).
+    -- node-b: 4096 (RAG/TTS/whisper/chromium, всплески крупнее).
     vram_reserve_mb     INTEGER NOT NULL DEFAULT 2048,
     weight              INTEGER NOT NULL DEFAULT 100,
 
@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS nodes (
 );
 
 -- Какие модели реально доступны на узле. Заполняется автоматически из
--- /status.supported_models каждого воркера, поэтому «на nv-02 есть hidream,
+-- /status.supported_models каждого воркера, поэтому «на node-b есть hidream,
 -- но нет ernie» не требует ни строчки конфигурации.
 CREATE TABLE IF NOT EXISTS node_models (
     node        TEXT NOT NULL,

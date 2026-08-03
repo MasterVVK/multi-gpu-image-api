@@ -1,8 +1,8 @@
 """Настройки шлюза.
 
-Форма взята из /home/user/vedora/backend/app/core/config.py: один класс
-Settings(BaseSettings), секции с комментариями, @lru_cache get_settings().
-У нетривиальных значений в комментарии написано, откуда взялось число.
+Один класс Settings(BaseSettings), секции с комментариями,
+@lru_cache get_settings(). У нетривиальных значений в комментарии написано,
+откуда взялось число.
 """
 
 from __future__ import annotations
@@ -91,7 +91,7 @@ class Settings(BaseSettings):
     pe_enabled: bool = Field(default=True, alias="IMG_PE_ENABLED")
     # JSON-список [{"base_url": ..., "model": ..., "api_key": ..., "timeout_s": 60}].
     # Порядок = порядок попыток. Правило отбора: эндпоинт не должен занимать VRAM
-    # наших двух 3090 — отсюда cloud-модели nv-02 и туннели к чужим картам.
+    # наших двух 3090 — отсюда cloud-модели node-b и туннели к чужим картам.
     pe_endpoints_json: str = Field(default="", alias="IMG_PE_ENDPOINTS")
     pe_timeout_s: float = Field(default=60.0, alias="IMG_PE_TIMEOUT_S")
 
