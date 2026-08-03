@@ -5,3 +5,6 @@ __pycache__/
 outputs/
 data/
 *.egg-info/
+
+# Локальные артефакты публикации
+*.pth
