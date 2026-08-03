@@ -60,14 +60,19 @@
 | `z-image-turbo` | 9 | 0.0 | 1024² 及另外 4 种 | ×32 | 13.6 GB（实测） |
 | `z-image-base` | 30 | 5.0 | 同上 | ×32 | 14.3 GB（估算） |
 | `qwen-image` | 50 | 4.0（`true_cfg_scale`） | 1328² 及另外 4 种 | ×16 | 21.5 GB（实测） |
-| `ernie-image-turbo` | 8 | 1.0 | 7 种预设 | 否 | 21.5 GB（估算） |
-| `ernie-image` | 50 | 4.0 | 同上 | 否 | 21.5 GB（估算） |
+| `ernie-image-turbo` | 8 | 1.0 | 7 种预设 | 否 | 17.2 GB（实测） |
+| `ernie-image` | 50 | 4.0 | 同上 | 否 | 17.2 GB（沿用 turbo 实测） |
 | `hidream-o1` | 50 | 5.0，`shift` 3.0 | 11 种预设，最高 3104×1312 | ×64 | 19.3 GB（实测） |
 
 "实测"指用 `scripts/measure_vram.py` 在默认预设下测量，扣除同卡邻居的背景占用，
 再加 5% 余量。校准不是走过场：`qwen-image` 从项目文档里抄来的数字（16 GB）比真实
 峰值 20.4 GB **低了 4.4 GB**。在一张紧张的卡上，这个差距换来的是 OOM，而不是一次
 诚实的拒绝。
+
+ERNIE 后端会在加载时丢弃管线内置的 prompt enhancer（Ministral-3.3B）。
+`use_pe=False` 并不能移除它——它是管线的一个*组件*，而不是 `__call__` 里的分支，
+因此总会被加载。丢弃之后，实测峰值从超过 23.5 GB（模型在 24 GB 卡上因此 OOM）
+降到了 16.5 GB。
 
 实时目录见 `GET /api/v1/models`，定义在 `worker/images_worker/registry.py`。
 
@@ -166,8 +171,7 @@ print(r.data[0].url)
 `IMG_PE_ENDPOINTS` 里的链路按顺序尝试；全部失败时，任务用原始提示词继续执行，
 并标记 `pe_status=failed`。提示词增强是锦上添花，不是依赖项。
 
-ERNIE 管线内置的增强器（Ministral-3.3B，在 21.5 GB 之上再加 6 GB）被强制关闭：
-24 GB 装不下。
+ERNIE 管线内置的增强器不只是被关闭，而是在加载时就从管线里移除了——详见「模型」一节的说明。
 
 ## 安装
 

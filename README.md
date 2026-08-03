@@ -65,8 +65,8 @@ only writer to disk. A remote node therefore needs no shared filesystem, and
 | `z-image-turbo` | 9 | 0.0 | 1024² + 4 more | ×32 | 13.6 GB (measured) |
 | `z-image-base` | 30 | 5.0 | same | ×32 | 14.3 GB (estimated) |
 | `qwen-image` | 50 | 4.0 (`true_cfg_scale`) | 1328² + 4 more | ×16 | 21.5 GB (measured) |
-| `ernie-image-turbo` | 8 | 1.0 | 7 presets | no | 21.5 GB (estimated) |
-| `ernie-image` | 50 | 4.0 | same | no | 21.5 GB (estimated) |
+| `ernie-image-turbo` | 8 | 1.0 | 7 presets | no | 17.2 GB (measured) |
+| `ernie-image` | 50 | 4.0 | same | no | 17.2 GB (inferred) |
 | `hidream-o1` | 50 | 5.0, `shift` 3.0 | 11 presets up to 3104×1312 | ×64 | 19.3 GB (measured) |
 
 "Measured" means `scripts/measure_vram.py`, at the default preset, minus the
@@ -74,6 +74,11 @@ background from co-tenants, plus 5%. Calibration is not a formality: for
 `qwen-image` the figure taken from project docs (16 GB) turned out to be
 **4.4 GB below** the real 20.4 GB peak. On a tight card that gap buys you an OOM
 instead of an honest refusal.
+
+The ERNIE backend drops the pipeline's built-in prompt enhancer (Ministral-3.3B)
+at load time. `use_pe=False` does not remove it — it is a pipeline *component*,
+not a branch in `__call__`, so it loads regardless. Dropping it took the measured
+peak from over 23.5 GB, where the model OOM-ed on a 24 GB card, down to 16.5 GB.
 
 Live catalogue: `GET /api/v1/models`. Definitions: `worker/images_worker/registry.py`.
 
@@ -182,8 +187,8 @@ so a remote LLM host or a cloud-routed model, never a local one. The
 original prompt and `pe_status=failed`. Enhancement is an improvement, not a
 dependency.
 
-ERNIE's in-pipeline enhancer (Ministral-3.3B, +6 GB on top of 21.5 GB) is
-disabled by force: it does not fit in 24 GB.
+ERNIE's in-pipeline enhancer is not merely disabled but removed from the
+pipeline at load time — see the note under Models.
 
 ## Install
 

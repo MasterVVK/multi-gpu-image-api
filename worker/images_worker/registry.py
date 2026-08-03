@@ -232,12 +232,16 @@ ERNIE_IMAGE_TURBO = ModelSpec(
     aspect_ratios=dict(_ERNIE_RATIOS),
     arbitrary_size=False,
     dim_multiple=16,
-    peak_vram_mb=21500,
+    # Замерено 2026-08-03: пик 16471 МБ чистыми, +5%. Это УЖЕ без встроенного
+    # prompt-enhancer'а: бэкенд выбрасывает его при загрузке. С ним пик уходил
+    # за 23.5 ГБ и модель падала с OOM на 24-гигабайтной карте.
+    peak_vram_mb=17200,
     cpu_offload=True,
     load_timeout_s=2400,
     seconds_per_step_hint=10.0,
-    notes="DMD+RL дистилляция, CFG 1.0. Внутрипайплайновый PE (Ministral-3.3B, +6 ГБ) "
-    "отключён принудительно: 22+6 ГБ не помещаются в 24 ГБ.",
+    notes="DMD+RL дистилляция, CFG 1.0. Встроенный PE (Ministral-3.3B) выбрасывается "
+    "при загрузке: он грузится как компонент пайплайна независимо от use_pe=False "
+    "и стоил около 6 ГБ пика.",
 )
 
 ERNIE_IMAGE_SFT = ModelSpec(
@@ -253,12 +257,14 @@ ERNIE_IMAGE_SFT = ModelSpec(
     aspect_ratios=dict(_ERNIE_RATIOS),
     arbitrary_size=False,
     dim_multiple=16,
-    peak_vram_mb=21500,
+    # Отдельно не замерена. Пайплайн тот же, что у turbo, и число шагов на пик
+    # почти не влияет — берём его замер. Уточнить: scripts/measure_vram.py ernie-image.
+    peak_vram_mb=17200,
     cpu_offload=True,
     load_timeout_s=2400,
     seconds_per_step_hint=10.0,
-    notes="Самая тяжёлая модель: 22 ГБ пика + 2 ГБ резерва = ровно 24 ГБ на node-a. "
-    "Отказы vram_unavailable здесь ожидаемы — это и есть остаточный принцип.",
+    notes="Тот же пайплайн, что у turbo, но 50 шагов вместо 8 — дольше, "
+    "а по памяти столько же. Встроенный PE так же выбрасывается при загрузке.",
 )
 
 # --- HiDream-O1 -------------------------------------------------------------
