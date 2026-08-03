@@ -29,10 +29,35 @@ class ErnieBackend(Backend):
     name = "ernie"
 
     def _load_model(self, spec: ModelSpec):
+        import gc
+
         from diffusers import ErnieImagePipeline
 
         log.info("loading %s", spec.repo_id)
         pipe = ErnieImagePipeline.from_pretrained(spec.repo_id, torch_dtype=torch.bfloat16)
+
+        # Выбрасываем встроенный prompt-enhancer (Ministral-3.3B) до того, как
+        # навесятся offload-хуки.
+        #
+        # use_pe=False в вызове его НЕ убирает: это отдельный компонент пайплайна,
+        # а не ветка в __call__ — он грузится всегда и занимает место наравне с
+        # остальными модулями. Улучшением промпта у нас занимается шлюз, причём на
+        # чужой карте, так что здесь он бесполезен и вреден: у ernie-* пик и без
+        # него упирается в 24 ГБ.
+        #
+        # Сигнатура компонента допускает None (в логе diffusers это видно как
+        # `Expected types for pe: (AutoModelForCausalLM, NoneType)`), поэтому
+        # подмена на None легальна.
+        if getattr(pipe, "pe", None) is not None:
+            try:
+                pipe.register_modules(pe=None)
+                gc.collect()
+                log.info("dropped built-in prompt enhancer (pe) to save memory")
+            except Exception as exc:
+                # Не критично: без выгрузки просто выше пик. Ронять загрузку из-за
+                # смены внутреннего API diffusers не за что.
+                log.warning("could not drop pe component: %s", exc)
+
         pipe.enable_model_cpu_offload()
         return pipe
 
