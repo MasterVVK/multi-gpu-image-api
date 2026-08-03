@@ -1,0 +1,40 @@
+# SSH-туннель до GPU-узла %i: четыре форварда в одном соединении.
+#
+# Зачем туннель, если nv-02 доступна по LAN напрямую: воркеры слушают только
+# 127.0.0.1 и наружу не смотрят никогда. Туннель — единственный путь к ним.
+#
+# ВНИМАНИЕ про $FORWARDS без фигурных скобок: systemd делит такое значение по
+# пробелам на отдельные аргументы, а ${FORWARDS} передал бы всё одной строкой
+# и ssh её не понял бы. Менять на ${...} нельзя.
+#
+# Образец — /home/user/vedora/infra/ssh-tunnels/ssh-tunnel@.service; тот юнит
+# не трогаем, у него свои потребители.
+
+[Unit]
+Description=images-api tunnel to %i
+After=network-online.target
+Wants=network-online.target
+# Туннель обязан подниматься вечно: временная недоступность узла — не повод сдаться.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=user
+EnvironmentFile=/etc/ssh-tunnels/%i.env
+ExecStart=/usr/bin/ssh -N -p ${REMOTE_PORT} $FORWARDS -i ${SSH_KEY} \
+  -o ServerAliveInterval=30 \
+  -o ServerAliveCountMax=3 \
+  -o ExitOnForwardFailure=yes \
+  -o ConnectTimeout=10 \
+  -o StrictHostKeyChecking=accept-new \
+  -o UserKnownHostsFile=/home/user/.ssh/known_hosts \
+  ${REMOTE}
+Restart=always
+RestartSec=15
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=images-tunnel-%i
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,53 @@
+"""Чистая логика планировщика: сколько VRAM просить и сколько ждать."""
+
+from __future__ import annotations
+
+from images_worker.registry import get_spec
+
+from images_api.services.scheduler import generate_timeout, required_mb
+
+
+def test_offload_model_needs_full_peak_even_when_resident():
+    """При cpu_offload резидентность не экономит VRAM: веса в системной RAM."""
+    spec = get_spec("z-image-turbo")
+    assert spec.weights_vram_mb == 0
+    assert required_mb("z-image-turbo", resident=True) == spec.peak_vram_mb
+    assert required_mb("z-image-turbo", resident=False) == spec.peak_vram_mb
+
+
+def test_resident_hidream_asks_only_for_the_difference():
+    """У hidream веса уже в used_mb — требовать их второй раз нельзя,
+    иначе резидентная модель не проходила бы собственную проверку."""
+    spec = get_spec("hidream-o1")
+    assert spec.weights_vram_mb > 0
+    cold = required_mb("hidream-o1", resident=False)
+    warm = required_mb("hidream-o1", resident=True)
+    assert cold == spec.peak_vram_mb
+    assert warm == spec.peak_vram_mb - spec.weights_vram_mb
+    assert warm < cold
+
+
+def test_required_never_drops_to_zero():
+    """Даже у резидентной модели нужен запас под активации."""
+    assert required_mb("hidream-o1", resident=True) >= 1024
+
+
+def test_timeout_has_warmup_allowance():
+    """Первый прогон после загрузки заметно медленнее: без запаса тайм-аут
+    обрывал честную генерацию z-image на 141-й секунде."""
+    assert generate_timeout("z-image-turbo", 9) > 300
+    assert generate_timeout("z-image-turbo", None) == generate_timeout("z-image-turbo", 9)
+
+
+def test_timeout_grows_with_steps():
+    assert generate_timeout("hidream-o1", 50) > generate_timeout("hidream-o1", 10)
+
+
+def test_every_model_timeout_covers_documented_runtime():
+    """Грубая проверка адекватности: тайм-аут не должен быть ниже
+    ожидаемого времени работы на дефолтных шагах."""
+    for model_id in ("qwen-image", "z-image-turbo", "z-image-base",
+                     "ernie-image-turbo", "ernie-image", "hidream-o1"):
+        spec = get_spec(model_id)
+        expected = spec.default_steps * spec.seconds_per_step_hint
+        assert generate_timeout(model_id, None) > expected * 2

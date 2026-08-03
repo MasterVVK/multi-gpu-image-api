@@ -1,0 +1,37 @@
+# Воркер генерации: один инстанс на бэкенд (%i = qwen|zimage|ernie|hidream).
+#
+# Почему шаблон, а не четыре юнита: отличаются они ровно одним — путём к venv,
+# а он приходит из EnvironmentFile. Постоянные пути в ExecStart/WorkingDirectory
+# systemd подставлять из переменных не умеет, поэтому запуск идёт через
+# /usr/local/bin/images-worker, который делает exec на нужный интерпретатор.
+#
+# WorkingDirectory намеренно нейтральный: ни один бэкенд не зависит от cwd.
+# Веса берутся из кэша HuggingFace, а вендорный код HiDream подключается
+# явным путём из IMG_HIDREAM_REPO_DIR.
+
+[Unit]
+Description=images-api worker: %i
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=user
+Group=user
+WorkingDirectory=/home/user/images-api
+EnvironmentFile=/etc/images-api/worker-%i.env
+ExecStart=/usr/local/bin/images-worker
+Restart=always
+RestartSec=10
+
+# SIGINT, а не SIGTERM: uvicorn по нему корректно закрывает lifespan, а тот
+# выгружает модель. Без этого после stop за процессом оставалась бы занятая VRAM.
+KillSignal=SIGINT
+TimeoutStopSec=60
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=images-worker-%i
+
+[Install]
+WantedBy=multi-user.target

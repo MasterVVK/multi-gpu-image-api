@@ -1,0 +1,9 @@
+# Снято с br-01 2026-08-03 из /home/user/qi-api/venv
+# python: Python 3.12.7
+# ВНИМАНИЕ: на nv-02 Python 3.10 — колёса нужны под cp310.
+#   torch==2.9.1+cu128
+#   torchvision==0.24.1+cu128
+#   transformers==4.57.3
+#   diffusers==0.36.0
+#   accelerate==1.12.0
+#   safetensors==0.7.0

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Обёртка запуска воркера: systemd не умеет подставлять переменные в ExecStart,
+# а интерпретатор у каждого бэкенда свой (четыре venv с несовместимыми пинами).
+set -euo pipefail
+
+: "${IMG_WORKER_PYTHON:?не задан IMG_WORKER_PYTHON в /etc/images-api/worker-<backend>.env}"
+: "${IMG_WORKER_BACKEND:?не задан IMG_WORKER_BACKEND}"
+
+exec "$IMG_WORKER_PYTHON" -m images_worker
