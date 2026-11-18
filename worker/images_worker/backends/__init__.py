@@ -30,4 +30,16 @@ def get_backend(name: str) -> Backend:
         from .hidream import HiDreamBackend
 
         return HiDreamBackend()
+    if name == "qwen21":
+        from .qwen21 import Qwen21Backend
+
+        return Qwen21Backend()
+    if name == "moss":
+        from .moss import MossBackend
+
+        return MossBackend()
+    if name == "minimax":
+        from .minimax import MiniMaxBackend
+
+        return MiniMaxBackend()
     raise ValueError("unknown backend %r" % name)

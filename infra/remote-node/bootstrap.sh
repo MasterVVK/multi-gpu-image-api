@@ -20,7 +20,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKENDS="${BACKENDS:-hidream zimage}"
 NODE="${IMG_WORKER_NODE:-node-b}"
-PROJECTS_ROOT="${IMG_PROJECTS_ROOT:-/home/user}"
+# Корень каталогов проектов моделей; по умолчанию — домашний каталог.
+PROJECTS_ROOT="${IMG_PROJECTS_ROOT:-$HOME}"
 WORKER_ROOT="${WORKER_ROOT:-$PROJECTS_ROOT/images-api/worker}"
 TOKEN="${WORKER_TOKEN:-}"
 
@@ -29,8 +30,17 @@ declare -A PROJECT=(
     [zimage]="$PROJECTS_ROOT/Z-Image-Turbo"
     [ernie]="$PROJECTS_ROOT/ERNIE-Image"
     [hidream]="$PROJECTS_ROOT/HiDream-O1-Image"
+    [qwen21]="$PROJECTS_ROOT/Qwen-Image-2.1"
+    # MOSS-Image делит venv с Qwen-Image 2.1 — стек у них общий.
+    [moss]="$PROJECTS_ROOT/Qwen-Image-2.1"
 )
-declare -A PORT=([qwen]=8101 [zimage]=8102 [ernie]=8103 [hidream]=8104)
+declare -A PORT=([qwen]=8101 [zimage]=8102 [ernie]=8103 [hidream]=8104 [qwen21]=8105 [moss]=8106)
+# Чей лок зависимостей использовать (по умолчанию — одноимённый).
+declare -A LOCK_OF=([moss]=qwen21)
+# Интерпретатор для новых venv. Стеку qwen21/moss нужен Python >= 3.11
+# (transformers >= 5.17), а системный на node-b — 3.10: задайте, например,
+# PYTHON="$(uv python find 3.12)".
+PYTHON="${PYTHON:-python3}"
 
 # HTTP-прокси для pip. Пустой по умолчанию. Если канал до PyPI медленный,
 # разница ощутима: в нашей сети прямой канал давал ~0.27 МБ/с, а через
@@ -50,7 +60,7 @@ echo
 
 for backend in $BACKENDS; do
     root="${PROJECT[$backend]}"
-    lock="$HERE/requirements/$backend.lock.txt"
+    lock="$HERE/requirements/${LOCK_OF[$backend]:-$backend}.lock.txt"
 
     [[ -f "$lock" ]] || { echo "нет $lock — снимите его на node-a через scripts/capture_venv_locks.sh"; exit 1; }
 
@@ -58,7 +68,13 @@ for backend in $BACKENDS; do
     mkdir -p "$root"
 
     if [[ ! -x "$root/venv/bin/python" ]]; then
-        python3 -m venv "$root/venv"
+        if [[ "$backend" == "qwen21" || "$backend" == "moss" ]] \
+            && ! "$PYTHON" -c 'import sys; sys.exit(sys.version_info < (3, 11))'; then
+            echo "$backend: нужен Python >= 3.11, а $PYTHON — это $("$PYTHON" -V 2>&1)." >&2
+            echo "Задайте PYTHON=/путь/к/python3.12 (например, из 'uv python install 3.12')." >&2
+            exit 1
+        fi
+        "$PYTHON" -m venv "$root/venv"
     fi
     "$root/venv/bin/pip" install --quiet ${PIP_PROXY:+--proxy "$PIP_PROXY"} --upgrade pip wheel
 
@@ -76,7 +92,21 @@ for backend in $BACKENDS; do
         zimage)
             "$root/venv/bin/pip" install --quiet ${PIP_PROXY:+--proxy "$PIP_PROXY"} "torch==2.10.0"
             ;;
+        qwen21|moss)
+            "$root/venv/bin/pip" install --quiet ${PIP_PROXY:+--proxy "$PIP_PROXY"} \
+                --index-url https://download.pytorch.org/whl/cu128 \
+                "torch==2.9.1" "torchvision==0.24.1"
+            ;;
     esac
+
+    # diffusers из git (в локе строка вида «diffusers @ git+https://...@<коммит>»)
+    # под шаблон «имя==версия» не попадает, а без него бэкенд не импортируется:
+    # ставим отдельно и падаем громко, а не пишем «пропущен» в общем списке.
+    direct="$(grep -iE '^diffusers @ ' "$lock" || true)"
+    if [[ -n "$direct" ]]; then
+        "$root/venv/bin/pip" install --quiet ${PIP_PROXY:+--proxy "$PIP_PROXY"} "$direct" \
+            || { echo "    НЕ УДАЛОСЬ поставить $direct — бэкенд работать не будет"; exit 1; }
+    fi
 
     # Из лока берём ТОЧНЫЕ версии только для пакетов, которые определяют
     # поведение модели. Остальное ставим по именам, без версий.
@@ -93,7 +123,7 @@ for backend in $BACKENDS; do
     # и требует torch уже в сборочном окружении, поэтому идёт отдельно и ниже.
     # Хвост == обязателен: без него "^torch" отсекает заодно torchao, а он нужен
     # для FP8-квантизации Qwen (иначе "TorchAoConfig requires torchao").
-    grep -viE "^(torch|torchvision|torchaudio|triton)==|^nvidia-|^flash[-_]attn==" "$lock" \
+    grep -viE "^(torch|torchvision|torchaudio|triton)==|^nvidia-|^flash[-_]attn==|^diffusers @ " "$lock" \
         | grep -viE "$CRITICAL" \
         | cut -d= -f1 | grep -v '^$' > /tmp/$backend.loose.txt
 
@@ -141,6 +171,11 @@ for backend in $BACKENDS; do
     site="$("$root/venv/bin/python" -c 'import sysconfig;print(sysconfig.get_paths()["purelib"])')"
     echo "$WORKER_ROOT" > "$site/images_worker.pth"
 
+    if [[ "$backend" == "qwen21" || "$backend" == "moss" ]]; then
+        "$root/venv/bin/python" -c "from diffusers import QwenImage21Pipeline" \
+            || { echo "    diffusers без QwenImage21Pipeline — бэкенд $backend работать не будет"; exit 1; }
+    fi
+
     "$root/venv/bin/python" -c "
 import torch, transformers, images_worker
 print('  torch=%s transformers=%s images_worker=%s cuda=%s'
@@ -159,12 +194,15 @@ IMG_WORKER_PYTHON=$root/venv/bin/python
 IMG_WORKER_TOKEN=$TOKEN
 IMG_WORKER_LOG_LEVEL=info
 IMG_WORKER_IDLE_UNLOAD_S=300
-IMG_WORKER_IDLE_EXIT_SECONDS=900
+IMG_WORKER_IDLE_EXIT_S=900
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 NO_PROXY=127.0.0.1,localhost,::1
 no_proxy=127.0.0.1,localhost,::1
 EOF
     [[ "$backend" == "hidream" ]] && echo "IMG_HIDREAM_REPO_DIR=$root" >> "$tmp"
+    # Веса привозит sync_to_node.sh; в сеть этим бэкендам ходить незачем, а MOSS
+    # ещё и исполняет код пайплайна из снапшота — он не должен обновиться сам.
+    [[ "$backend" == "qwen21" || "$backend" == "moss" ]] && echo "HF_HUB_OFFLINE=1" >> "$tmp"
     sudo install -m 0640 -o root -g root "$tmp" "/etc/images-api/worker-$backend.env"
     rm -f "$tmp"
 done

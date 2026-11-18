@@ -14,7 +14,8 @@
 set -euo pipefail
 
 WORKER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../worker" && pwd)"
-PROJECTS_ROOT="${IMG_PROJECTS_ROOT:-/home/user}"
+# Корень каталогов проектов моделей; по умолчанию — домашний каталог.
+PROJECTS_ROOT="${IMG_PROJECTS_ROOT:-$HOME}"
 PTH_NAME="images_worker.pth"
 
 VENVS=(
@@ -22,6 +23,7 @@ VENVS=(
     "$PROJECTS_ROOT/Z-Image-Turbo/venv"
     "$PROJECTS_ROOT/ERNIE-Image/venv"
     "$PROJECTS_ROOT/HiDream-O1-Image/venv"
+    "$PROJECTS_ROOT/Qwen-Image-2.1/venv"
     "$(cd "$WORKER_DIR/.." && pwd)/.venv"
 )
 

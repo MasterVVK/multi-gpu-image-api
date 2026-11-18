@@ -5,24 +5,25 @@
 # осталось от прошлой жизни процесса), поэтому запускаться должен ПОСЛЕ воркеров.
 
 # Пути ниже заданы буквально: systemd не подставляет переменные в
-# WorkingDirectory и ExecStart. Если проект лежит не в /home/user —
-# поправьте их здесь, это единственное место.
+# WorkingDirectory и ExecStart. Каталог проекта записан как /opt/images-api —
+# scripts/install_systemd.sh при установке заменяет его на фактический.
+# Ставите юнит вручную — замените сами, это единственное место.
 [Unit]
 Description=images-api gateway
-After=network.target images-worker@qwen.service images-worker@zimage.service images-worker@ernie.service images-worker@hidream.service
-Wants=images-worker@qwen.service images-worker@zimage.service images-worker@ernie.service images-worker@hidream.service
+After=network.target images-worker@qwen.service images-worker@zimage.service images-worker@ernie.service images-worker@hidream.service images-worker@qwen21.service images-worker@moss.service
+Wants=images-worker@qwen.service images-worker@zimage.service images-worker@ernie.service images-worker@hidream.service images-worker@qwen21.service images-worker@moss.service
 
 [Service]
 Type=simple
 User=user
 Group=user
-WorkingDirectory=/home/user/images-api
-Environment="PATH=/home/user/images-api/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+WorkingDirectory=/opt/images-api
+Environment="PATH=/opt/images-api/.venv/bin:/usr/local/bin:/usr/bin:/bin"
 # Ровно один процесс: эксклюзивная аренда узла держится на asyncio.Lock,
 # второй воркер uvicorn сломал бы её молча. Приложение само откажется стартовать
 # при другом значении.
 Environment="WEB_CONCURRENCY=1"
-ExecStart=/home/user/images-api/.venv/bin/python -m images_api.main
+ExecStart=/opt/images-api/.venv/bin/python -m images_api.main
 Restart=always
 RestartSec=10
 KillSignal=SIGINT

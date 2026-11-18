@@ -25,7 +25,7 @@ ExecStart=/usr/bin/ssh -N -p ${REMOTE_PORT} $FORWARDS -i ${SSH_KEY} \
   -o ExitOnForwardFailure=yes \
   -o ConnectTimeout=10 \
   -o StrictHostKeyChecking=accept-new \
-  -o UserKnownHostsFile=/home/user/.ssh/known_hosts \
+  -o UserKnownHostsFile=~/.ssh/known_hosts \
   ${REMOTE}
 Restart=always
 RestartSec=15

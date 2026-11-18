@@ -1,0 +1,20 @@
+# Стек воркера MiniMax-H3-Image. Версии — те, на которых бэкенд проверен локально
+# (venv Qwen-Image-2.1, python 3.12). torch и torchvision ставятся отдельным слоем
+# с https://download.pytorch.org/whl/cu128 — см. Dockerfile.
+#
+# diffusers — конкретный коммит main: MiniMaxH3ImageBlocks на момент сборки есть только там.
+diffusers @ https://github.com/huggingface/diffusers/archive/d9586a3dc62cce5091bdb7cff981d725f4a6dfe5.tar.gz
+transformers==5.23.0
+tokenizers==0.23.3
+huggingface_hub==2.4.0
+accelerate==1.16.0
+safetensors==0.8.0
+numpy==2.5.4
+pillow==13.0.0
+sentencepiece==0.2.3
+protobuf==7.36.2
+# HTTP-обвязка воркера
+fastapi==0.128.0
+starlette==0.50.0
+uvicorn==0.40.0
+pydantic==2.14.3

@@ -8,3 +8,13 @@ data/
 
 # Локальные артефакты публикации
 *.pth
+
+# Комплект узла с большой картой (infra/big-node):
+# копия ../../worker — кладётся в контекст сборки перед docker compose build;
+infra/big-node/worker/
+# крошечные веса для тестов — их собирает tests/make_tiny_repo.py (через conftest.py);
+infra/big-node/tests/fake_hf/
+infra/big-node/tests/.hf_home_scratch/
+infra/big-node/tests/.pydeps/
+# токен и имя узла (UUID карты в .env уже покрыт правилом выше).
+infra/big-node/worker.env

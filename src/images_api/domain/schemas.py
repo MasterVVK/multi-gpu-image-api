@@ -68,7 +68,8 @@ class GenerateRequest(BaseModel):
 
     model: str = Field(
         ...,
-        description="Идентификатор из реестра: qwen-image | z-image-turbo | z-image-base | "
+        description="Идентификатор из реестра: qwen-image | qwen-image-2.1 | qwen-image-2.1-turbo | "
+        "z-image-turbo | z-image-base | "
         "ernie-image-turbo | ernie-image | hidream-o1",
     )
     prompt: str = Field(..., min_length=1, max_length=4000)

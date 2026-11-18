@@ -40,13 +40,15 @@ never imports torch, plus thin workers, each launched from its own venv:
 clients ──8010──▶ gateway  (own .venv, NO torch)
                   FastAPI + SQLite + VRAM arbiter + Prompt Enhancer
                         │ httpx                    │ httpx over ssh -L
-              127.0.0.1:8101..8104          127.0.0.1:18101..18104
+              127.0.0.1:8101..8106          127.0.0.1:18101..18106
               ┌──────────────────┐          ┌──────────────────┐
               │ node-a           │          │ node-b           │
               │ 8101 qwen        │          │ 18101 qwen       │
               │ 8102 zimage      │          │ 18102 zimage     │
               │ 8103 ernie       │          │ 18104 hidream    │
-              │ 8104 hidream     │          └──────────────────┘
+              │ 8104 hidream     │          │ 18105 qwen21     │
+              │ 8105 qwen21      │          │ 18106 moss       │
+              │ 8106 moss        │          └──────────────────┘
               └──────────────────┘
 ```
 
@@ -65,9 +67,39 @@ only writer to disk. A remote node therefore needs no shared filesystem, and
 | `z-image-turbo` | 9 | 0.0 | 1024² + 4 more | ×32 | 13.6 GB (measured) |
 | `z-image-base` | 30 | 5.0 | same | ×32 | 14.3 GB (estimated) |
 | `qwen-image` | 50 | 4.0 (`true_cfg_scale`) | 1328² + 4 more | ×16 | 21.5 GB (measured) |
+| `qwen-image-2.1` | 40 | 1.0 — CFG off | 2048² + 6 more, up to 2752×1536 | ×32 | 10.7 GB (measured) |
+| `qwen-image-2.1-bf16` | 40 | 1.0 — CFG off | same | ×32 | 17.7 GB (measured) |
+| `qwen-image-2.1-turbo` | 8 (fixed) | none | same | ×32 | 10.7 GB (carried over from base) |
+| `moss-image` | 50 | 3.0 | 1408² + 6 more, ~2 MP | ×16 | 11.7 GB (measured via torch counters) |
 | `ernie-image-turbo` | 8 | 1.0 | 7 presets | no | 17.2 GB (measured) |
 | `ernie-image` | 50 | 4.0 | same | no | 17.2 GB (inferred) |
 | `hidream-o1` | 50 | 5.0, `shift` 3.0 | 11 presets up to 3104×1312 | ×64 | 19.3 GB (measured) |
+
+Qwen-Image 2.1 runs in its own `qwen21` backend (separate venv: it needs
+`QwenImage21Pipeline` from diffusers main and transformers ≥ 5.17). To fit a shared
+24 GB card the text encoder (17.5 GB) stays on the CPU (10–20 s per prompt), the
+transformer weights are stored as float8 and cast to bf16 layer by layer, and the
+VAE decodes in 1024 px tiles (a whole 2K image does not decode in 24 GB at all).
+Measured on an RTX 3090 at 2752×1536, 40 steps: 10.1 GB peak and 277 s, against
+17.2 GB and ~300 s with everything on the card in bf16. CFG is off by default
+(`guidance_scale=1.0`); `negative_prompt` only applies when `guidance_scale > 1`.
+Turbo has its step count and guidance baked into the checkpoint: a different step
+count or a `negative_prompt` is rejected with 422. The 2.1 weights are under the
+Qwen Research License (non-commercial use).
+
+`qwen-image-2.1-bf16` is the same checkpoint with full transformer weights: reference quality
+at 16.8 GB. On a shared card it only starts once the neighbours are gone, so a client that
+values the result over time should ask for it first and retry with `qwen-image-2.1` on
+`vram_unavailable`.
+
+MOSS-Image (OpenMOSS, Apache-2.0) is the `moss` backend: same venv as `qwen21`, its own
+process. The model ships its own pipeline (`pipeline_moss_image.py` in the weights repo,
+`trust_remote_code`), so the worker runs with `HF_HUB_OFFLINE=1` and reads the code from the
+pinned snapshot. The text encoder stays on the CPU here too. CFG is on for any
+`guidance_scale` except 1.0; at 1.0 a `negative_prompt` is rejected with 422.
+
+Both backends need Python ≥ 3.11 (transformers ≥ 5.17): on a node whose system Python is
+3.10, set `PYTHON=` for `infra/remote-node/bootstrap.sh`.
 
 "Measured" means `scripts/measure_vram.py`, at the default preset, minus the
 background from co-tenants, plus 5%. Calibration is not a formality: for
@@ -197,7 +229,7 @@ uv sync                                    # gateway venv (no torch)
 cp .env.example .env                       # set IMG_API_KEYS, IMG_WORKER_TOKEN
 ./scripts/install_worker_into_venvs.sh     # .pth into each model venv
 ./scripts/install_systemd.sh               # units and per-worker env files
-sudo systemctl enable --now images-worker@{qwen,zimage,ernie,hidream} images-api
+sudo systemctl enable --now images-worker@{qwen,zimage,ernie,hidream,qwen21,moss} images-api
 ```
 
 Nothing in the model projects is modified except one `.pth` file per venv,
@@ -298,7 +330,7 @@ Everything is in `.env`; `.env.example` is annotated.
 | `IMG_NODES_JSON` | one local node | node definitions for the first boot |
 | `IMG_PE_ENDPOINTS` | — | Prompt Enhancer chain, tried in order |
 | `IMG_OPENAI_MAX_N` | 2 | cap on `n` in the OpenAI layer |
-| `IMG_PROJECTS_ROOT` | `/home/user` | where the model project directories live |
+| `IMG_PROJECTS_ROOT` | `$HOME` | where the model project directories live |
 
 ## Requirements
 

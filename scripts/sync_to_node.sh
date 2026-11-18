@@ -21,7 +21,8 @@ REMOTE="${REMOTE:?укажите REMOTE=user@host второго узла}"
 SSH_PORT="${SSH_PORT:-22}"
 MODELS="${MODELS:-hidream zimage}"
 HF="$HOME/.cache/huggingface/hub"
-PROJECTS_ROOT="${IMG_PROJECTS_ROOT:-/home/user}"
+# Корень каталогов проектов моделей; по умолчанию — домашний каталог.
+PROJECTS_ROOT="${IMG_PROJECTS_ROOT:-$HOME}"
 RSYNC_OPTS=(-aH --info=progress2 --partial -e "ssh -p $SSH_PORT")
 [[ -n "${DRY:-}" ]] && RSYNC_OPTS+=(--dry-run)
 
@@ -67,6 +68,18 @@ for model in $MODELS; do
         qwen)
             echo "=== веса qwen (~48 ГБ)"
             rsync "${RSYNC_OPTS[@]}" "$HF/models--Ilus-AI--Qwen-Image-2512-FP8" "$REMOTE:$HF/"
+            ;;
+        qwen21)
+            echo "=== веса qwen-image-2.1 (~66 ГБ: base + turbo)"
+            ssh -p "$SSH_PORT" "$REMOTE" 'mkdir -p ~/.cache/huggingface/hub'
+            rsync "${RSYNC_OPTS[@]}" \
+                "$HF/models--Qwen--Qwen-Image-2.1" "$HF/models--Qwen--Qwen-Image-2.1-Turbo" \
+                "$REMOTE:$HF/"
+            ;;
+        moss)
+            echo "=== веса moss-image (~27 ГБ)"
+            ssh -p "$SSH_PORT" "$REMOTE" 'mkdir -p ~/.cache/huggingface/hub'
+            rsync "${RSYNC_OPTS[@]}" "$HF/models--OpenMOSS-Team--MOSS-Image-SFT" "$REMOTE:$HF/"
             ;;
         *) echo "неизвестная модель: $model"; exit 2 ;;
     esac

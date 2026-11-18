@@ -13,6 +13,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -30,6 +31,20 @@ from .settings import WorkerSettings
 
 log = logging.getLogger("images_worker.runner")
 
+
+def _holds_cuda_context() -> bool:
+    """Создан ли в этом процессе CUDA-контекст.
+
+    torch не импортируем сами: бэкенды грузят его лениво, и если модуля ещё нет
+    в sys.modules, то и контекста быть не может.
+    """
+    torch = sys.modules.get("torch")
+    if torch is None:
+        return False
+    try:
+        return bool(torch.cuda.is_initialized())
+    except Exception:  # pragma: no cover — на всякий случай считаем, что держит
+        return True
 
 class WorkerRunner:
     def __init__(self, settings: WorkerSettings) -> None:
@@ -187,6 +202,10 @@ class WorkerRunner:
         столько сейчас висит за простаивающим z-image). Четыре бездействующих
         воркера — это больше гигабайта VRAM впустую. Единственный способ вернуть
         её полностью — умереть; systemd поднимет обратно за пару секунд.
+
+        Процесс, который карту ещё не трогал, не выходит: отдавать ему нечего, а
+        перезапуск по кругу каждые N секунд простоя — это шум в журнале и, в
+        контейнере, бесконечно растущий счётчик рестартов.
         """
         threshold = self.settings.idle_exit_s
         if threshold <= 0:
@@ -198,6 +217,7 @@ class WorkerRunner:
                 and self.backend.resident_model is None
                 and self.backend.loading_model is None
                 and self.idle_seconds >= threshold
+                and _holds_cuda_context()
             ):
                 log.info("idle %.0fs with no model — exiting to release CUDA context", self.idle_seconds)
                 # _exit, а не sys.exit: обычный выход ждал бы GPU-пул.

@@ -1,6 +1,6 @@
-# Воркер генерации: один инстанс на бэкенд (%i = qwen|zimage|ernie|hidream).
+# Воркер генерации: один инстанс на бэкенд (%i = qwen|zimage|ernie|hidream|qwen21|moss).
 #
-# Почему шаблон, а не четыре юнита: отличаются они ровно одним — путём к venv,
+# Почему шаблон, а не юнит на каждый бэкенд: отличаются они ровно одним — путём к venv,
 # а он приходит из EnvironmentFile. Постоянные пути в ExecStart/WorkingDirectory
 # systemd подставлять из переменных не умеет, поэтому запуск идёт через
 # /usr/local/bin/images-worker, который делает exec на нужный интерпретатор.
@@ -10,8 +10,9 @@
 # явным путём из IMG_HIDREAM_REPO_DIR.
 
 # Пути ниже заданы буквально: systemd не подставляет переменные в
-# WorkingDirectory и ExecStart. Если проект лежит не в /home/user —
-# поправьте их здесь, это единственное место.
+# WorkingDirectory и ExecStart. Каталог проекта записан как /opt/images-api —
+# scripts/install_systemd.sh при установке заменяет его на фактический.
+# Ставите юнит вручную — замените сами, это единственное место.
 [Unit]
 Description=images-api worker: %i
 After=network.target
@@ -21,7 +22,7 @@ StartLimitIntervalSec=0
 Type=simple
 User=user
 Group=user
-WorkingDirectory=/home/user/images-api
+WorkingDirectory=/opt/images-api
 EnvironmentFile=/etc/images-api/worker-%i.env
 ExecStart=/usr/local/bin/images-worker
 Restart=always

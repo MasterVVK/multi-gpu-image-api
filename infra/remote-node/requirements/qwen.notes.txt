@@ -1,4 +1,4 @@
-# Снято с node-a 2026-08-03 из /home/user/qi-api/venv
+# Снято с node-a 2026-08-03 из $IMG_PROJECTS_ROOT/qi-api/venv
 # python: Python 3.12.7
 # ВНИМАНИЕ: на node-b Python 3.10 — колёса нужны под cp310.
 #   torch==2.9.1+cu128

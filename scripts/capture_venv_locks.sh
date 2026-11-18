@@ -7,7 +7,8 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/infra/remote-node/requirements"
-PROJECTS_ROOT="${IMG_PROJECTS_ROOT:-/home/user}"
+# Корень каталогов проектов моделей; по умолчанию — домашний каталог.
+PROJECTS_ROOT="${IMG_PROJECTS_ROOT:-$HOME}"
 mkdir -p "$OUT"
 
 declare -A VENVS=(
@@ -15,6 +16,7 @@ declare -A VENVS=(
     [zimage]="$PROJECTS_ROOT/Z-Image-Turbo/venv"
     [ernie]="$PROJECTS_ROOT/ERNIE-Image/venv"
     [hidream]="$PROJECTS_ROOT/HiDream-O1-Image/venv"
+    [qwen21]="$PROJECTS_ROOT/Qwen-Image-2.1/venv"
 )
 
 for name in "${!VENVS[@]}"; do
@@ -25,9 +27,15 @@ for name in "${!VENVS[@]}"; do
     "$venv/bin/pip" freeze --exclude-editable > "$OUT/$name.lock.txt"
 
     {
-        echo "# Снято с node-a $(date +%F) из $venv"
+        echo "# Снято с node-a $(date +%F) из \$IMG_PROJECTS_ROOT/${venv#"$PROJECTS_ROOT"/}"
         echo "# python: $("$venv/bin/python" -V 2>&1)"
         echo "# ВНИМАНИЕ: на node-b Python 3.10 — колёса нужны под cp310."
+        if [[ "$name" == "qwen21" ]]; then
+            # Единственное место, где записан источник torch: без него bootstrap
+            # возьмёт сборку с PyPI, а не ту, на которой сняты замеры.
+            echo "# torch ставится с https://download.pytorch.org/whl/cu128, diffusers — коммит main"
+            echo "# (см. qwen21.diffusers.direct_url.json). Нужен Python >= 3.11. Этот же venv обслуживает moss."
+        fi
         "$venv/bin/python" - <<'PY'
 import importlib
 for mod in ("torch", "torchvision", "transformers", "diffusers", "accelerate", "safetensors"):
@@ -48,4 +56,12 @@ ERNIE_DIRECT=$(find "$PROJECTS_ROOT"/ERNIE-Image/venv/lib/*/site-packages/diffus
 if [[ -n "$ERNIE_DIRECT" ]]; then
     cp "$ERNIE_DIRECT" "$OUT/ernie.diffusers.direct_url.json"
     echo "diffusers у ernie: $(python3 -c "import json;d=json.load(open('$ERNIE_DIRECT'));print(d.get('url'), d.get('vcs_info',{}).get('commit_id'))")"
+fi
+
+# То же для Qwen-Image 2.1: QwenImage21Pipeline на момент установки был только
+# в main, так что воспроизводимость держится на идентификаторе коммита.
+QWEN21_DIRECT=$(find "$PROJECTS_ROOT"/Qwen-Image-2.1/venv/lib/*/site-packages/diffusers-*.dist-info -name direct_url.json 2>/dev/null | head -1)
+if [[ -n "$QWEN21_DIRECT" ]]; then
+    cp "$QWEN21_DIRECT" "$OUT/qwen21.diffusers.direct_url.json"
+    echo "diffusers у qwen21: $(python3 -c "import json;d=json.load(open('$QWEN21_DIRECT'));print(d.get('url'), d.get('vcs_info',{}).get('commit_id'))")"
 fi

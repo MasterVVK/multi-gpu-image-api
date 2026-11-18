@@ -1,0 +1,219 @@
+# MiniMax-H3-Image как узел шлюза images-api.
+#
+# Карта задана идентификатором (RTX PRO 6000): другие карты хоста контейнер не видит вовсе,
+# и внутри она всегда имеет индекс 0 — на это рассчитывает gpu.py воркера (nvidia-smi -i 0).
+# UUID карты берётся из .env рядом с этим файлом (IMG_GPU_UUID, см. .env.example): без него
+# compose откажется работать с понятной ошибкой, а не запустит воркер не на той карте.
+# Порт слушает только петля хоста — снаружи доступ исключительно через ssh-туннель шлюза.
+name: minimax-h3-image
+
+services:
+  worker:
+    image: images-worker-minimax:1
+    build: .
+    container_name: images-worker-minimax
+    # Воркер сам выходит из процесса (код 0) после каждой задачи, чтобы вернуть карте
+    # CUDA-контекст. unless-stopped перезапускает контейнер при любом коде выхода;
+    # on-failure НЕ подошёл бы — он не поднимает после кода 0.
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    # Секрет (IMG_WORKER_TOKEN) и имя узла (IMG_WORKER_NODE) — в worker.env, права 600.
+    # Остальное задано здесь.
+    env_file: worker.env
+    environment:
+      IMG_WORKER_BACKEND: minimax
+      # Внутри контейнера — все интерфейсы, иначе проброс порта не достанет до процесса.
+      # Наружу хоста порт всё равно смотрит только через 127.0.0.1 (см. ports).
+      IMG_WORKER_HOST: 0.0.0.0
+      IMG_WORKER_PORT: "8107"
+      # Общий выход по простою выключен: он перезапускал бы контейнер по кругу и тогда,
+      # когда карта не тронута. Выходом после задачи управляет сам бэкенд.
+      IMG_WORKER_IDLE_EXIT_S: "0"
+      IMG_WORKER_IDLE_UNLOAD_S: "180"
+      IMG_MINIMAX_EXIT_AFTER_S: "120"
+    ports:
+      - "127.0.0.1:8107:8107"
+    volumes:
+      # Длинная запись ради create_host_path: false — если ./hf нет, запуск упадёт,
+      # а не смонтирует молча пустой каталог, созданный от root.
+      - type: bind
+        source: ./hf
+        target: /hf
+        read_only: true
+        bind:
+          create_host_path: false
+    # Потолок памяти контейнера — защита RAM хоста. В него входит и файловый кэш, который
+    # контейнер нагоняет чтением весов (~130 ГБ на задачу): ядро вытесняет эти страницы
+    # в пределах лимита, а не из памяти соседей. Своей (анонимной) памяти воркеру нужно
+    # несколько ГБ. Своп запрещён: memswap_limit равен mem_limit.
+    mem_limit: 32g
+    memswap_limit: 32g
+    healthcheck:
+      # /healthz не требует токена и не трогает GPU.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8107/healthz', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${IMG_GPU_UUID:?задайте IMG_GPU_UUID в .env рядом с compose.yml, см. .env.example}"]
+              # utility — это nvidia-smi внутри контейнера: по нему воркер сообщает шлюзу
+              # свободную VRAM. compute — CUDA.
+              capabilities: [gpu, compute, utility]
+
+  # Qwen-Image 2.1 с полными весами, целиком на карте (модель qwen-image-2.1-full).
+  # Тот же образ, другой бэкенд. В простое VRAM не занимает: через 15 с после
+  # картинки модель выгружается, ещё через минуту процесс выходит и отдаёт
+  # CUDA-контекст; контейнер поднимается заново и карту не трогает до следующей задачи.
+  qwen21:
+    image: images-worker-minimax:1
+    container_name: images-worker-qwen21
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    env_file: worker.env
+    environment:
+      IMG_WORKER_BACKEND: qwen21
+      # Только вариант «всё на карте»: остальные модели бэкенда держат текстовый
+      # энкодер в системной RAM хоста, а её на этом узле не трогаем.
+      IMG_WORKER_MODELS: qwen-image-2.1-full
+      IMG_WORKER_HOST: 0.0.0.0
+      IMG_WORKER_PORT: "8105"
+      IMG_WORKER_IDLE_UNLOAD_S: "15"
+      IMG_WORKER_IDLE_EXIT_S: "60"
+    ports:
+      - "127.0.0.1:8105:8105"
+    volumes:
+      - type: bind
+        source: ./hf
+        target: /hf
+        read_only: true
+        bind:
+          create_host_path: false
+    mem_limit: 32g
+    memswap_limit: 32g
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8105/healthz', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${IMG_GPU_UUID:?задайте IMG_GPU_UUID в .env рядом с compose.yml, см. .env.example}"]
+              capabilities: [gpu, compute, utility]
+
+  # ERNIE-Image SFT с полными весами, целиком на карте (модель ernie-image-full).
+  # Тот же образ, что у qwen21; встроенный prompt-enhancer не скачан и не грузится.
+  # Как у qwen21: через 15 с после картинки выгрузка, через минуту — выход процесса.
+  ernie:
+    image: images-worker-minimax:1
+    container_name: images-worker-ernie
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    env_file: worker.env
+    environment:
+      IMG_WORKER_BACKEND: ernie
+      # Только вариант «всё на карте»: ernie-image и turbo держат энкодер в RAM хоста.
+      IMG_WORKER_MODELS: ernie-image-full
+      IMG_WORKER_HOST: 0.0.0.0
+      IMG_WORKER_PORT: "8103"
+      IMG_WORKER_IDLE_UNLOAD_S: "15"
+      IMG_WORKER_IDLE_EXIT_S: "60"
+    ports:
+      - "127.0.0.1:8103:8103"
+    volumes:
+      - type: bind
+        source: ./hf
+        target: /hf
+        read_only: true
+        bind:
+          create_host_path: false
+    mem_limit: 32g
+    memswap_limit: 32g
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8103/healthz', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${IMG_GPU_UUID:?задайте IMG_GPU_UUID в .env рядом с compose.yml, см. .env.example}"]
+              capabilities: [gpu, compute, utility]
+
+  # HiDream-O1-Image: и так «вся на карте» (device_map="cuda", ~16 ГБ весов + активации).
+  # Свой образ: вендорному коду нужен transformers 4.57, а не 5.x как у остальных.
+  # Как у qwen21: через 15 с после картинки выгрузка, через минуту — выход процесса.
+  hidream:
+    image: images-worker-hidream:1
+    build:
+      context: .
+      dockerfile: Dockerfile.hidream
+    container_name: images-worker-hidream
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    env_file: worker.env
+    environment:
+      IMG_WORKER_BACKEND: hidream
+      IMG_WORKER_HOST: 0.0.0.0
+      IMG_WORKER_PORT: "8104"
+      IMG_WORKER_IDLE_UNLOAD_S: "15"
+      IMG_WORKER_IDLE_EXIT_S: "60"
+    ports:
+      - "127.0.0.1:8104:8104"
+    volumes:
+      - type: bind
+        source: ./hf
+        target: /hf
+        read_only: true
+        bind:
+          create_host_path: false
+    mem_limit: 32g
+    memswap_limit: 32g
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8104/healthz', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${IMG_GPU_UUID:?задайте IMG_GPU_UUID в .env рядом с compose.yml, см. .env.example}"]
+              capabilities: [gpu, compute, utility]

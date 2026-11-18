@@ -37,13 +37,15 @@
 客户端 ──8010──▶ 网关  (独立 .venv，不含 torch)
                   FastAPI + SQLite + 显存仲裁器 + Prompt Enhancer
                         │ httpx                    │ httpx 经 ssh -L
-              127.0.0.1:8101..8104          127.0.0.1:18101..18104
+              127.0.0.1:8101..8106          127.0.0.1:18101..18106
               ┌──────────────────┐          ┌──────────────────┐
               │ 节点 node-a      │          │ 节点 node-b      │
               │ 8101 qwen        │          │ 18101 qwen       │
               │ 8102 zimage      │          │ 18102 zimage     │
               │ 8103 ernie       │          │ 18104 hidream    │
-              │ 8104 hidream     │          └──────────────────┘
+              │ 8104 hidream     │          │ 18105 qwen21     │
+              │ 8105 qwen21      │          │ 18106 moss       │
+              │ 8106 moss        │          └──────────────────┘
               └──────────────────┘
 ```
 
@@ -60,9 +62,34 @@
 | `z-image-turbo` | 9 | 0.0 | 1024² 及另外 4 种 | ×32 | 13.6 GB（实测） |
 | `z-image-base` | 30 | 5.0 | 同上 | ×32 | 14.3 GB（估算） |
 | `qwen-image` | 50 | 4.0（`true_cfg_scale`） | 1328² 及另外 4 种 | ×16 | 21.5 GB（实测） |
+| `qwen-image-2.1` | 40 | 1.0（默认关闭 CFG） | 2048² 及另外 6 种，最大 2752×1536 | ×32 | 10.7 GB（实测） |
+| `qwen-image-2.1-bf16` | 40 | 1.0（默认关闭 CFG） | 同上 | ×32 | 17.7 GB（实测） |
+| `qwen-image-2.1-turbo` | 8（固定） | 无 | 同上 | ×32 | 10.7 GB（沿用 base 的实测值） |
+| `moss-image` | 50 | 3.0 | 1408² 及另外 6 种，约 2 MP | ×16 | 11.7 GB（按 torch 计数器实测） |
 | `ernie-image-turbo` | 8 | 1.0 | 7 种预设 | 否 | 17.2 GB（实测） |
 | `ernie-image` | 50 | 4.0 | 同上 | 否 | 17.2 GB（沿用 turbo 实测） |
 | `hidream-o1` | 50 | 5.0，`shift` 3.0 | 11 种预设，最高 3104×1312 | ×64 | 19.3 GB（实测） |
+
+Qwen-Image 2.1 运行在独立的 `qwen21` 后端（单独的 venv：需要 diffusers main 分支的
+`QwenImage21Pipeline` 和 transformers ≥ 5.17）。为了挤进共享的 24 GB 显卡：文本编码器
+（17.5 GB）留在 CPU 上（每个 prompt 约 10–20 秒），transformer 权重以 float8 存储、逐层
+转换为 bf16，VAE 以 1024 px 分块解码（整张 2K 图在 24 GB 内根本无法解码）。在 RTX 3090
+上实测 2752×1536、40 步：峰值 10.1 GB、277 秒；全部放在显卡上用 bf16 则是 17.2 GB、
+约 300 秒。CFG 默认关闭（`guidance_scale=1.0`），`negative_prompt` 仅在
+`guidance_scale > 1` 时生效。Turbo 的步数和 guidance 固化在检查点里：其他步数或
+`negative_prompt` 会被 422 拒绝。2.1 的权重采用 Qwen Research License（仅限非商业用途）。
+
+`qwen-image-2.1-bf16` 是同一检查点的完整 transformer 权重版本：参考级质量，峰值 16.8 GB。
+在共享显卡上只有邻居进程离开后才能启动，因此更看重结果的客户端应优先请求它，遇到
+`vram_unavailable` 时再用 `qwen-image-2.1` 重试。
+
+MOSS-Image（OpenMOSS，Apache-2.0）是 `moss` 后端：与 `qwen21` 共用同一个 venv，但进程独立。
+该模型自带 pipeline（权重仓库中的 `pipeline_moss_image.py`，需要 `trust_remote_code`），因此
+worker 以 `HF_HUB_OFFLINE=1` 运行，代码取自固定的快照。文本编码器同样留在 CPU 上。除 1.0 以外
+的任何 `guidance_scale` 都会启用 CFG；为 1.0 时带 `negative_prompt` 的请求会被 422 拒绝。
+
+这两个后端都需要 Python ≥ 3.11（transformers ≥ 5.17）：系统 Python 为 3.10 的节点请为
+`infra/remote-node/bootstrap.sh` 设置 `PYTHON=`。
 
 "实测"指用 `scripts/measure_vram.py` 在默认预设下测量，扣除同卡邻居的背景占用，
 再加 5% 余量。校准不是走过场：`qwen-image` 从项目文档里抄来的数字（16 GB）比真实
@@ -180,7 +207,7 @@ uv sync                                    # 网关 venv（不含 torch）
 cp .env.example .env                       # 设置 IMG_API_KEYS、IMG_WORKER_TOKEN
 ./scripts/install_worker_into_venvs.sh     # 向每个模型 venv 写入 .pth
 ./scripts/install_systemd.sh               # 单元文件与各工作进程的 env 文件
-sudo systemctl enable --now images-worker@{qwen,zimage,ernie,hidream} images-api
+sudo systemctl enable --now images-worker@{qwen,zimage,ernie,hidream,qwen21,moss} images-api
 ```
 
 模型项目里除了每个 venv 一个 `.pth` 文件之外什么都没改，用
@@ -272,7 +299,7 @@ torch 和 transformers 完全一致，只有 numpy 有出入。
 | `IMG_NODES_JSON` | 一个本地节点 | 首次启动时的节点定义 |
 | `IMG_PE_ENDPOINTS` | — | Prompt Enhancer 链路，按顺序尝试 |
 | `IMG_OPENAI_MAX_N` | 2 | OpenAI 层中 `n` 的上限 |
-| `IMG_PROJECTS_ROOT` | `/home/user` | 模型项目目录所在位置 |
+| `IMG_PROJECTS_ROOT` | `$HOME` | 模型项目目录所在位置 |
 
 ## 环境要求
 

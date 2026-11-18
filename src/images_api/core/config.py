@@ -12,6 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from images_worker.registry import PROJECTS_ROOT
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -140,13 +141,15 @@ class Settings(BaseSettings):
         """Каталоги выдачи четырёх старых сервисов.
 
         Отдаются только на чтение по /api/v1/images/legacy/<ключ>/..., чтобы
-        ссылки, сохранённые до объединения, продолжали открываться.
+        ссылки, сохранённые до объединения, продолжали открываться. Каталоги
+        проектов ищутся там же, где их ищет реестр моделей, — в IMG_PROJECTS_ROOT.
         """
+        root = Path(PROJECTS_ROOT)
         return {
-            "qwen": Path("/home/user/qi-api/outputs"),
-            "zimage": Path("/home/user/Z-Image-Turbo/outputs"),
-            "ernie": Path("/home/user/ERNIE-Image/outputs"),
-            "hidream": Path("/home/user/HiDream-O1-Image/outputs"),
+            "qwen": root / "qi-api" / "outputs",
+            "zimage": root / "Z-Image-Turbo" / "outputs",
+            "ernie": root / "ERNIE-Image" / "outputs",
+            "hidream": root / "HiDream-O1-Image" / "outputs",
         }
 
 

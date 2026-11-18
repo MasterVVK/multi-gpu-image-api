@@ -1,4 +1,4 @@
-# Снято с node-a 2026-08-03 из /home/user/HiDream-O1-Image/venv
+# Снято с node-a 2026-08-03 из $IMG_PROJECTS_ROOT/HiDream-O1-Image/venv
 # python: Python 3.12.7
 # ВНИМАНИЕ: на node-b Python 3.10 — колёса нужны под cp310.
 #   torch==2.5.1+cu121

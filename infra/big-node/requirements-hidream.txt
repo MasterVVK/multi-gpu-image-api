@@ -1,0 +1,20 @@
+# Стек воркера HiDream-O1-Image. Версии transformers/diffusers/accelerate — те же, что
+# в venv HiDream на node-a (infra/remote-node/requirements/hidream.lock.txt): вендорный
+# код models/qwen3_vl_transformers.py собран на внутренностях transformers 4.57 и с 5.x
+# не совместим. torch новее (2.9.1+cu128, отдельным слоем — см. Dockerfile.hidream):
+# сборка cu121 из лока карты Blackwell (sm_120) не знает.
+transformers==4.57.1
+tokenizers==0.22.2
+diffusers==0.38.0
+accelerate==1.13.0
+safetensors==0.8.0rc0  # как в локе: diffusers 0.38.0 требует >=0.8.0-rc.0
+einops==0.8.2
+sentencepiece==0.2.1
+numpy<2.5
+pillow
+scipy
+huggingface_hub>=0.34,<1.0
+# HTTP-обвязка воркера
+fastapi==0.128.0
+uvicorn==0.40.0
+pydantic==2.12.5

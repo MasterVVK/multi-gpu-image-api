@@ -87,6 +87,9 @@ def resolve_size(spec: ModelSpec, size: str) -> tuple[int, int, str | None]:
 
 
 def resolve_steps(spec: ModelSpec, quality: str) -> int:
+    if spec.fixed_steps:
+        # У дистиллятов с зашитой сеткой «качество» шагами не выражается.
+        return spec.default_steps
     factor = _QUALITY_STEPS.get(quality, 1.0)
     steps = round(spec.default_steps * factor)
     return max(1, min(steps, spec.max_steps))

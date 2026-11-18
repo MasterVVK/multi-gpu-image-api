@@ -1,0 +1,31 @@
+# Сторож доступа к GPU у контейнеров воркеров на узле с большой картой
+# (см. infra/big-node/gpu-watchdog.sh). Ставится на машину шлюза — туда, где поднят
+# ssh-туннель до узла (images-tunnel@<узел>) и откуда есть ssh-доступ к узлу.
+#
+# Установка (из корня проекта):
+#   sudo install -m 0755 infra/big-node/gpu-watchdog.sh /usr/local/bin/images-big-node-gpu-watchdog
+#   sudo install -m 0644 infra/big-node/images-big-node-gpu-watchdog.{service,timer} /etc/systemd/system/
+#   sudo install -d -m 0755 /etc/images-api
+#   sudo install -m 0640 -o root -g user /dev/null /etc/images-api/big-node-watchdog.env
+#   sudoedit /etc/images-api/big-node-watchdog.env   # IMG_WORKER_TOKEN, REMOTE_SSH, REMOTE_DIR — см. шапку gpu-watchdog.sh
+#   sudo systemctl daemon-reload && sudo systemctl enable --now images-big-node-gpu-watchdog.timer
+#
+# Скрипт копируется в /usr/local/bin, а не запускается из каталога проекта: systemd не
+# подставляет переменные в ExecStart, а %h в системном юните — домашний каталог root,
+# а не пользователя из User=. После правки gpu-watchdog.sh повторите первую команду.
+#
+# User/Group — учётная запись, у которой есть ssh-ключ до узла; группа должна читать
+# env-файл. Инстанс туннеля в After= назван по примеру из README — поправьте под свой
+# (порядок важен только при загрузке: таймер в любом случае ждёт 3 минуты).
+[Unit]
+Description=images-api: сторож GPU контейнеров на узле с большой картой
+After=network-online.target images-tunnel@node-c.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=user
+Group=user
+ExecStart=/usr/local/bin/images-big-node-gpu-watchdog
+TimeoutStartSec=300
+Nice=10

@@ -62,7 +62,17 @@ def resolve(request: GenerateRequest, spec: ModelSpec | None = None) -> Resolved
 
     if request.width is not None and request.height is not None:
         width, height = request.width, request.height
+        # Только для моделей с произвольным размером: у «только пресеты» явный
+        # размер — ошибка запроса по контракту, даже если числа совпали.
+        if spec.arbitrary_size:
+            aspect_ratio = _preset_name(spec, width, height)
 
+    if aspect_ratio is not None:
+        # Размер, совпавший с пресетом, — это пресет: /api/v1/resolutions сам
+        # отдаёт эти числа, и отвергать их по max_dim было бы нечестно (у
+        # qwen-image-2.1 и hidream часть пресетов длиннее max_dim).
+        pass
+    elif request.width is not None and request.height is not None:
         if not spec.arbitrary_size:
             raise ValidationError(
                 "модель %s поддерживает только пресеты aspect_ratio: %s"
@@ -89,12 +99,22 @@ def resolve(request: GenerateRequest, spec: ModelSpec | None = None) -> Resolved
         width, height = spec.aspect_ratios[aspect_ratio]
 
     steps = request.num_inference_steps or spec.default_steps
+    if spec.fixed_steps and steps != spec.default_steps:
+        # Сетка шагов зашита в чекпойнт: записать в задачу другое число значило бы
+        # соврать и в истории, и в расчёте тайм-аута.
+        raise ValidationError(
+            "у модели %s число шагов фиксировано: %d" % (spec.id, spec.default_steps)
+        )
     if steps > spec.max_steps:
         raise ValidationError(
             "num_inference_steps=%d превышает максимум %d для %s" % (steps, spec.max_steps, spec.id)
         )
 
     guidance = request.guidance_scale if request.guidance_scale is not None else spec.default_guidance
+    if spec.fixed_guidance and guidance != spec.default_guidance:
+        raise ValidationError(
+            "модель %s не принимает guidance_scale: он зашит в чекпойнт" % spec.id
+        )
 
     shift = None
     scheduler = None
@@ -116,6 +136,13 @@ def resolve(request: GenerateRequest, spec: ModelSpec | None = None) -> Resolved
     negative_prompt = request.negative_prompt or ""
     if negative_prompt and not spec.supports_negative_prompt:
         raise ValidationError("модель %s не принимает negative_prompt" % spec.id)
+    threshold = spec.negative_needs_guidance_above
+    if negative_prompt and threshold is not None and guidance <= threshold:
+        raise ValidationError(
+            "negative_prompt у модели %s действует только при guidance_scale > %g "
+            "(сейчас %g): увеличьте guidance_scale или уберите negative_prompt"
+            % (spec.id, threshold, guidance)
+        )
 
     return ResolvedParams(
         model_id=spec.id,
@@ -141,11 +168,29 @@ def coerce_size(spec: ModelSpec, width: int, height: int) -> tuple[int, int, str
         name, pw, ph = nearest_preset(spec, width, height)
         return pw, ph, name
 
+    preset = _preset_name(spec, width, height)
+    if preset is not None:
+        return width, height, preset
+    if width > spec.max_dim or height > spec.max_dim:
+        # Срезать стороны по отдельности нельзя: 2752x1536 превратилось бы в
+        # 2048x1536, то есть 16:9 стало бы 4:3. Ближайший по пропорциям пресет
+        # сохраняет кадр, а пресеты крупнее max_dim у таких моделей как раз есть.
+        name, pw, ph = nearest_preset(spec, width, height)
+        return pw, ph, name
+
     w = min(max(_round_down(width, spec.dim_multiple), spec.min_dim), spec.max_dim)
     h = min(max(_round_down(height, spec.dim_multiple), spec.min_dim), spec.max_dim)
     w = _round_down(w, spec.dim_multiple)
     h = _round_down(h, spec.dim_multiple)
     return w, h, None
+
+
+def _preset_name(spec: ModelSpec, width: int, height: int) -> str | None:
+    """Имя пресета с точно такими размерами или None."""
+    for name, size in spec.aspect_ratios.items():
+        if size == (width, height):
+            return name
+    return None
 
 
 def _models_with_shift() -> str:

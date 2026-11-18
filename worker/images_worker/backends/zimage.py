@@ -1,6 +1,6 @@
 """Бэкенд Z-Image (turbo и base).
 
-Перенос /home/user/Z-Image-Turbo/src/z_image_api/model.py. Пайплайн собирается
+Перенос $IMG_PROJECTS_ROOT/Z-Image-Turbo/src/z_image_api/model.py. Пайплайн собирается
 вручную из отдельных файлов репозитория: готового from_pretrained для этой
 раскладки нет.
 

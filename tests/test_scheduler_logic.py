@@ -46,7 +46,10 @@ def test_timeout_grows_with_steps():
 def test_every_model_timeout_covers_documented_runtime():
     """Грубая проверка адекватности: тайм-аут не должен быть ниже
     ожидаемого времени работы на дефолтных шагах."""
-    for model_id in ("qwen-image", "z-image-turbo", "z-image-base",
+    for model_id in ("qwen-image", "qwen-image-2.1", "qwen-image-2.1-bf16",
+                     "qwen-image-2.1-full", "qwen-image-2.1-turbo", "moss-image",
+                     "minimax-h3-image",
+                     "z-image-turbo", "z-image-base",
                      "ernie-image-turbo", "ernie-image", "hidream-o1"):
         spec = get_spec(model_id)
         expected = spec.default_steps * spec.seconds_per_step_hint

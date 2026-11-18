@@ -1,6 +1,6 @@
 """Бэкенд ERNIE-Image (turbo и sft).
 
-Перенос /home/user/ERNIE-Image/src/ernie_image_api/model.py. Смена варианта
+Перенос $IMG_PROJECTS_ROOT/ERNIE-Image/src/ernie_image_api/model.py. Смена варианта
 turbo↔sft — это полная перезагрузка (Base.load сам выгружает предыдущую),
 ровно как делал _unload_other() в оригинале.
 
@@ -34,7 +34,12 @@ class ErnieBackend(Backend):
         from diffusers import ErnieImagePipeline
 
         log.info("loading %s", spec.repo_id)
-        pipe = ErnieImagePipeline.from_pretrained(spec.repo_id, torch_dtype=torch.bfloat16)
+        # Вариант «всё на карте» (узел с большой картой) не грузит prompt-enhancer
+        # вовсе: его веса там не скачаны, а читать 7 ГБ в RAM хоста ради выброса —
+        # против правил узла.
+        # Обычные узлы по-прежнему выбрасывают его после загрузки (ниже).
+        skip_pe = {} if spec.cpu_offload else {"pe": None, "pe_tokenizer": None}
+        pipe = ErnieImagePipeline.from_pretrained(spec.repo_id, torch_dtype=torch.bfloat16, **skip_pe)
 
         # Выбрасываем встроенный prompt-enhancer (Ministral-3.3B) до того, как
         # навесятся offload-хуки.
@@ -58,6 +63,11 @@ class ErnieBackend(Backend):
                 # смены внутреннего API diffusers не за что.
                 log.warning("could not drop pe component: %s", exc)
 
+        if not spec.cpu_offload:
+            # Большая карта (ernie-image-full): всё на GPU, RAM хоста после
+            # загрузки свободна.
+            pipe.to("cuda")
+            return pipe
         pipe.enable_model_cpu_offload()
         return pipe
 

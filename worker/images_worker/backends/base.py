@@ -68,6 +68,36 @@ def weights_present(spec: ModelSpec) -> bool:
     return False
 
 
+def _allowed_models() -> set[str] | None:
+    """Белый список моделей узла из IMG_WORKER_MODELS (через запятую) или None.
+
+    Нужен, когда у одного бэкенда есть модели с разной ценой для хоста. На узле с
+    большой картой qwen21 должен объявлять только qwen-image-2.1-full: остальные
+    варианты держат текстовый энкодер в системной RAM (десятки ГБ), а её там
+    обещано не трогать — хотя веса у всех вариантов общие и лежат на диске.
+    """
+    raw = os.environ.get("IMG_WORKER_MODELS", "").strip()
+    if not raw:
+        return None
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+
+def fits_this_card(spec: ModelSpec) -> bool:
+    """Способна ли карта этого узла вообще вместить модель.
+
+    Обычные модели рассчитаны на 24 ГБ и проходят всегда. Модели большого класса
+    (card_class_mb выше) узел объявляет, только если его карта вмещает их пик:
+    иначе шлюз считал бы узел кандидатом, а задача ждала бы на нём VRAM, которой
+    там не бывает. Без показаний nvidia-smi такие модели не объявляем.
+    """
+    if spec.card_class_mb <= 24576:
+        return True
+    from .. import gpu
+
+    info = gpu.gpu_info()
+    return bool(info.available and info.total_mb >= spec.peak_vram_mb)
+
+
 class Backend:
     """Общий жизненный цикл. Наследники реализуют _load_model и _generate."""
 
@@ -109,7 +139,14 @@ class Backend:
         if self._supported_cache is not None and (now - self._supported_at) < self._SUPPORTED_TTL_S:
             return list(self._supported_cache)
 
-        found = [m for m in models_for_backend(self.name) if weights_present(get_spec(m))]
+        allowed = _allowed_models()
+        found = [
+            m
+            for m in models_for_backend(self.name)
+            if (allowed is None or m in allowed)
+            and weights_present(get_spec(m))
+            and fits_this_card(get_spec(m))
+        ]
         self._supported_cache = found
         self._supported_at = now
         return list(found)
@@ -180,7 +217,10 @@ class Backend:
         try:
             import torch
 
-            if torch.cuda.is_available():
+            # is_initialized, а не is_available: ipc_collect() начинается с ленивой
+            # инициализации CUDA и создал бы контекст (~340 МБ на карте) в процессе,
+            # который карту ещё не трогал, — ровно то, чего мы здесь избегаем.
+            if torch.cuda.is_initialized():
                 torch.cuda.empty_cache()
                 torch.cuda.ipc_collect()
         except Exception as exc:  # pragma: no cover

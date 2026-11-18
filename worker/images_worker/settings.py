@@ -67,7 +67,9 @@ def load_settings() -> WorkerSettings:
         port=_int("IMG_WORKER_PORT", DEFAULT_WORKER_PORTS[backend]),
         token=_str("IMG_WORKER_TOKEN"),
         idle_unload_s=_int("IMG_WORKER_IDLE_UNLOAD_S", 180),
-        idle_exit_s=_int("IMG_WORKER_IDLE_EXIT_S", 600),
+        # Скрипты установки исторически пишут ..._SECONDS, а читалось только ..._S,
+        # и значение из env-файла молча не действовало. Принимаем оба имени.
+        idle_exit_s=_int("IMG_WORKER_IDLE_EXIT_S", _int("IMG_WORKER_IDLE_EXIT_SECONDS", 600)),
         preload_model=_str("IMG_WORKER_PRELOAD_MODEL") or None,
         log_level=_str("IMG_WORKER_LOG_LEVEL", "info"),
     )

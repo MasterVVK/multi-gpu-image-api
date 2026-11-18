@@ -1,0 +1,9 @@
+# Снято с node-a 2026-11-17 из $IMG_PROJECTS_ROOT/Qwen-Image-2.1/venv
+# python: Python 3.12.7
+# torch ставится с https://download.pytorch.org/whl/cu128, diffusers — коммит main (см. qwen21.diffusers.direct_url.json).
+#   torch==2.9.1+cu128
+#   torchvision==0.24.1+cu128
+#   transformers==5.23.0
+#   diffusers==0.44.0.dev0
+#   accelerate==1.16.0
+#   safetensors==0.8.0

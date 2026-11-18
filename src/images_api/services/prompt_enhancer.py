@@ -30,7 +30,7 @@ from ..core.logging import get_logger
 log = get_logger("prompt_enhancer")
 
 # Системный промпт перенесён без изменений из
-# /home/user/ERNIE-Image/src/ernie_image_api/prompt_agent.py — он уже отлажен.
+# $IMG_PROJECTS_ROOT/ERNIE-Image/src/ernie_image_api/prompt_agent.py — он уже отлажен.
 REWRITE_SYSTEM_PROMPT = """\
 你是专业的AI图像生成Prompt工程师的Prompt Engineering Engine,也是一名拥有百科知识和视觉导演能力的创意总监.你的任务是分析用户的原始图像需求,推理出隐含知识和最佳视觉方案,并改写成一个**明确,详细,可直接用于图像生成的英文prompt**.
 

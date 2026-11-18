@@ -1,0 +1,10 @@
+[Unit]
+Description=images-api: сторож GPU контейнеров на узле с большой картой — раз в 3 минуты
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=3min
+AccuracySec=20s
+
+[Install]
+WantedBy=timers.target

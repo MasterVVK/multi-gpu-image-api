@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Установка юнитов и env-файлов воркеров. Идемпотентно.
 #
-# Токен воркеров берётся из /home/user/images-api/.env (IMG_WORKER_TOKEN),
+# Токен воркеров берётся из .env в корне проекта (IMG_WORKER_TOKEN),
 # чтобы он гарантированно совпадал с тем, что ждёт шлюз.
 
 set -euo pipefail
@@ -9,7 +9,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_DIR=/etc/images-api
 NODE="${IMG_WORKER_NODE:-node-a}"
-PROJECTS_ROOT="${IMG_PROJECTS_ROOT:-/home/user}"
+# Корень каталогов проектов моделей; по умолчанию — домашний каталог.
+PROJECTS_ROOT="${IMG_PROJECTS_ROOT:-$HOME}"
 
 # SOCKS-прокси для докачки весов с HuggingFace. Пустые по умолчанию — задайте,
 # если прямого выхода в сеть нет. У ERNIE он свой: в нашей сети это был
@@ -29,12 +30,19 @@ BACKENDS=(
     "zimage:8102:$PROJECTS_ROOT/Z-Image-Turbo/venv"
     "ernie:8103:$PROJECTS_ROOT/ERNIE-Image/venv"
     "hidream:8104:$PROJECTS_ROOT/HiDream-O1-Image/venv"
+    "qwen21:8105:$PROJECTS_ROOT/Qwen-Image-2.1/venv"
+    # MOSS-Image живёт в том же venv, что и Qwen-Image 2.1: стек у них общий.
+    "moss:8106:$PROJECTS_ROOT/Qwen-Image-2.1/venv"
 )
 
 sudo install -d -m 0755 "$ENV_DIR"
 sudo install -m 0755 "$ROOT/infra/systemd/images-worker" /usr/local/bin/images-worker
-sudo install -m 0644 "$ROOT/infra/systemd/images-worker@.service" /etc/systemd/system/
-sudo install -m 0644 "$ROOT/infra/systemd/images-api.service" /etc/systemd/system/
+# В юнитах каталог проекта записан как /opt/images-api (systemd не подставляет
+# переменные в WorkingDirectory/ExecStart) — при установке заменяем на фактический.
+for unit in images-worker@.service images-api.service; do
+    sed "/^#/!s|/opt/images-api|$ROOT|g" "$ROOT/infra/systemd/$unit" \
+        | sudo install -m 0644 /dev/stdin "/etc/systemd/system/$unit"
+done
 
 for entry in "${BACKENDS[@]}"; do
     IFS=: read -r backend port venv <<< "$entry"
@@ -59,7 +67,7 @@ IMG_WORKER_LOG_LEVEL=info
 IMG_WORKER_IDLE_UNLOAD_S=300
 # Полный выход процесса после простоя без модели — единственный способ
 # отдать CUDA-контекст (~340 МБ на процесс). systemd поднимет обратно.
-IMG_WORKER_IDLE_EXIT_SECONDS=900
+IMG_WORKER_IDLE_EXIT_S=900
 
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 # Локальные адреса мимо SOCKS: иначе обращения внутри хоста уходят в прокси.
@@ -88,6 +96,11 @@ EOF
             # Веса локальные, сеть не нужна вовсе.
             echo "IMG_HIDREAM_REPO_DIR=$PROJECTS_ROOT/HiDream-O1-Image" >> "$tmp"
             ;;
+        qwen21|moss)
+            # Веса уже в кэше HuggingFace, и сверять их с сетью при каждой загрузке
+            # незачем: без прокси это минуты тайм-аутов до отката на кэш.
+            echo "HF_HUB_OFFLINE=1" >> "$tmp"
+            ;;
     esac
 
     sudo install -m 0640 -o root -g root "$tmp" "$ENV_DIR/worker-$backend.env"
@@ -98,5 +111,5 @@ done
 sudo systemctl daemon-reload
 echo
 echo "Готово. Дальше:"
-echo "  sudo systemctl enable --now images-worker@{qwen,zimage,ernie,hidream}"
+echo "  sudo systemctl enable --now images-worker@{qwen,zimage,ernie,hidream,qwen21,moss}"
 echo "  sudo systemctl enable --now images-api"

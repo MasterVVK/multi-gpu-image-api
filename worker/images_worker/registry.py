@@ -19,12 +19,13 @@ import os
 from dataclasses import dataclass, field
 
 # Корень, где лежат каталоги проектов моделей. Вынесен в переменную, чтобы
-# развернуть проект на другой машине можно было без правки кода.
-PROJECTS_ROOT = os.environ.get("IMG_PROJECTS_ROOT", "/home/user")
+# развернуть проект на другой машине можно было без правки кода. По умолчанию —
+# домашний каталог пользователя, от которого запущен процесс.
+PROJECTS_ROOT = os.environ.get("IMG_PROJECTS_ROOT", os.path.expanduser("~"))
 
 # Бэкенд = отдельный процесс со своим venv. Один бэкенд обслуживает 1..N моделей,
 # но резидентной в каждый момент держит ровно одну.
-BACKENDS = ("qwen", "zimage", "ernie", "hidream")
+BACKENDS = ("qwen", "zimage", "ernie", "hidream", "qwen21", "moss", "minimax")
 
 # Как называется параметр CFG в вызове конкретного пайплайна.
 # qwen: QwenImagePipeline принимает и `guidance_scale`, и `true_cfg_scale`,
@@ -69,6 +70,11 @@ class ModelSpec:
     # --- возможности ---
     supports_negative_prompt: bool = True
     supports_pe: bool = True
+    # У части пайплайнов negative_prompt работает только при включённом CFG:
+    # при guidance_scale не выше этого порога он молча игнорируется. Шлюз в
+    # таком случае отказывает с 422 — принять параметр и не применить нельзя.
+    # None — ограничения нет.
+    negative_needs_guidance_above: float | None = None
 
     # --- ресурсы ---
     # peak_vram_mb — пик по nvidia-smi во время генерации в дефолтном разрешении.
@@ -93,6 +99,10 @@ class ModelSpec:
     # у hidream (33 ГБ, 8 шардов) при непрогретом page cache. Тайм-ауты с запасом.
     load_timeout_s: int = 1800
     seconds_per_step_hint: float = 3.0
+    # Класс карты, под которую рассчитана модель: её пик обязан помещаться в такую карту.
+    # По умолчанию 24 ГБ (3090/4090) — это инвариант tests/test_registry.py для всех
+    # обычных моделей. Больше — только у моделей, живущих на отдельном большом узле.
+    card_class_mb: int = 24576
 
     notes: str = ""
 
@@ -100,9 +110,19 @@ class ModelSpec:
     def default_size(self) -> tuple[int, int]:
         return self.aspect_ratios[self.default_aspect_ratio]
 
+    @property
+    def fixed_steps(self) -> bool:
+        """Число шагов зашито в чекпойнт и из запроса не берётся."""
+        return self.max_steps == self.default_steps
+
+    @property
+    def fixed_guidance(self) -> bool:
+        """Guidance зашит (дистилляция без CFG) и в пайплайн не передаётся."""
+        return self.guidance_param == "none"
+
 
 # --- Qwen-Image -------------------------------------------------------------
-# Источник: /home/user/qi-api/.env → QI_MODEL_ID=Ilus-AI/Qwen-Image-2512-FP8,
+# Источник: $IMG_PROJECTS_ROOT/qi-api/.env → QI_MODEL_ID=Ilus-AI/Qwen-Image-2512-FP8,
 #           QI_QUANTIZATION=none → ветка DiffusionPipeline.from_pretrained(bf16).
 # Пресет 4:3 исправлен: в qi_api/config.py стояло 1472x1140, но 1140 не делится
 # на 8 и diffusers молча переокругляет. 1136 = 71*16.
@@ -115,6 +135,7 @@ QWEN_IMAGE = ModelSpec(
     max_steps=100,
     default_guidance=4.0,
     guidance_param="true_cfg_scale",
+    negative_needs_guidance_above=1.0,
     aspect_ratios={
         "1:1": (1328, 1328),
         "16:9": (1664, 928),
@@ -134,6 +155,198 @@ QWEN_IMAGE = ModelSpec(
     seconds_per_step_hint=12.0,
     notes="CFG подаётся как true_cfg_scale вместе с negative_prompt. "
     "Старый qi-api принимал cfg_scale и не передавал его в пайплайн вовсе.",
+)
+
+# --- Qwen-Image 2.1 ---------------------------------------------------------
+# Преемник 2512: 7B DiT, родное разрешение 2K, энкодер Qwen3-VL. Свой бэкенд и
+# свой venv — стек (QwenImage21Pipeline, transformers >= 5.17) несовместим с
+# venv 2512. Пресеты — из карточки модели, все стороны кратны 32.
+# variant="fp8" — веса трансформера хранятся в float8 (layerwise casting);
+# от этого зависит пик VRAM, поэтому режим задаётся здесь, а не окружением.
+# Лицензия весов — Qwen Research License (только некоммерческое использование),
+# в отличие от Apache-2.0 у 2512.
+_QWEN21_RATIOS = {
+    "1:1": (2048, 2048),
+    "4:3": (2400, 1792),
+    "3:4": (1792, 2400),
+    "3:2": (2528, 1696),
+    "2:3": (1696, 2528),
+    "16:9": (2752, 1536),
+    "9:16": (1536, 2752),
+}
+
+QWEN_IMAGE_21 = ModelSpec(
+    id="qwen-image-2.1",
+    backend="qwen21",
+    display_name="Qwen-Image 2.1",
+    repo_id="Qwen/Qwen-Image-2.1",
+    variant="fp8",
+    # Рекомендация Qwen: 40 шагов без CFG. guidance_scale > 1 включает настоящий
+    # CFG (true_cfg_scale + negative_prompt) и удваивает работу на шаг.
+    default_steps=40,
+    max_steps=100,
+    default_guidance=1.0,
+    guidance_param="true_cfg_scale",
+    negative_needs_guidance_above=1.0,
+    aspect_ratios=dict(_QWEN21_RATIOS),
+    default_aspect_ratio="1:1",
+    arbitrary_size=True,
+    dim_multiple=32,
+    min_dim=512,
+    max_dim=2048,
+    # Замерено 2026-11-17 на RTX 3090, пресет 16:9 (2752x1536), 40 шагов:
+    # пик 10113 МБ чистыми, +5%. Это режим «энкодер на CPU, трансформер в fp8»
+    # (см. backends/qwen21.py); с весами bf16 пик был бы 16.8 ГБ.
+    peak_vram_mb=10700,
+    cpu_offload=True,
+    load_timeout_s=2400,
+    # 277 с на 40 шагов вместе с кодированием промпта на CPU (10..20 с) и декодом.
+    seconds_per_step_hint=7.0,
+    notes="CFG по умолчанию выключен (guidance_scale=1.0); negative_prompt действует "
+    "только при guidance_scale > 1. Пресеты 4:3/3:2/16:9 и обратные превышают "
+    "max_dim=2048 и доступны только через aspect_ratio.",
+)
+
+# Тот же чекпойнт с весами трансформера как есть (bf16), без fp8-хранения.
+# Качество — эталонное, цена — пик 16.8 ГБ вместо 10.1: на карте, которую делят
+# с соседями, эта модель запускается, только когда соседи ушли. Клиенту, которому
+# важнее результат, чем время, имеет смысл просить её первой и откатываться на
+# qwen-image-2.1 при отказе vram_unavailable.
+QWEN_IMAGE_21_BF16 = ModelSpec(
+    id="qwen-image-2.1-bf16",
+    backend="qwen21",
+    display_name="Qwen-Image 2.1 (полные веса bf16)",
+    repo_id="Qwen/Qwen-Image-2.1",
+    variant=None,
+    default_steps=40,
+    max_steps=100,
+    default_guidance=1.0,
+    guidance_param="true_cfg_scale",
+    negative_needs_guidance_above=1.0,
+    aspect_ratios=dict(_QWEN21_RATIOS),
+    default_aspect_ratio="1:1",
+    arbitrary_size=True,
+    dim_multiple=32,
+    min_dim=512,
+    max_dim=2048,
+    # Замерено 2026-11-17 на RTX 3090, пресет 16:9 (2752x1536), 40 шагов,
+    # энкодер на CPU: пик 16823 МБ чистыми, +5%.
+    peak_vram_mb=17700,
+    cpu_offload=True,
+    load_timeout_s=2400,
+    # 290 с на 40 шагов вместе с кодированием промпта и декодом.
+    seconds_per_step_hint=7.5,
+    notes="Полные веса трансформера (bf16): тот же результат, что у разработчика, "
+    "но пик VRAM 16.8 ГБ против 10.1 ГБ у qwen-image-2.1. Остальное — как у qwen-image-2.1.",
+)
+
+# Тот же чекпойнт для большой карты: энкодер, трансформер и VAE лежат на GPU
+# целиком и постоянно, системная RAM хоста почти не занята. Для узла с картой
+# на 96 ГБ, где видеопамяти много, а оперативную нужно беречь. На 24 ГБ модель
+# не помещается по определению, и узлы с такими картами её не объявляют.
+QWEN_IMAGE_21_FULL = ModelSpec(
+    id="qwen-image-2.1-full",
+    backend="qwen21",
+    display_name="Qwen-Image 2.1 (bf16, всё на карте)",
+    repo_id="Qwen/Qwen-Image-2.1",
+    variant=None,
+    default_steps=40,
+    max_steps=100,
+    default_guidance=1.0,
+    guidance_param="true_cfg_scale",
+    negative_needs_guidance_above=1.0,
+    aspect_ratios=dict(_QWEN21_RATIOS),
+    default_aspect_ratio="1:1",
+    arbitrary_size=True,
+    dim_multiple=32,
+    min_dim=512,
+    max_dim=2048,
+    # Замерено 2026-11-17 на RTX PRO 6000 (узел node-c), пресет 16:9 (2752x1536),
+    # 40 шагов: пик 39323 МБ чистыми по nvidia-smi, +5%. Генерация 89 с,
+    # загрузка 42 с; системная RAM хоста выросла на 2.5 ГБ.
+    peak_vram_mb=41300,
+    weights_vram_mb=32000,
+    cpu_offload=False,
+    card_class_mb=98304,
+    load_timeout_s=2400,
+    # 89 с на 40 шагов на RTX PRO 6000; запас на случай медленного диска.
+    seconds_per_step_hint=4.0,
+    notes="Полные веса, все компоненты на карте: для узла с большой картой. "
+    "Результат тот же, что у qwen-image-2.1-bf16; отличается только размещение.",
+)
+
+QWEN_IMAGE_21_TURBO = ModelSpec(
+    id="qwen-image-2.1-turbo",
+    backend="qwen21",
+    display_name="Qwen-Image 2.1 Turbo",
+    repo_id="Qwen/Qwen-Image-2.1-Turbo",
+    variant="fp8",
+    # Сетка сигм зашита в чекпойнт: шагов всегда 8, num_inference_steps на неё
+    # не влияет. Поэтому max_steps == default_steps — другое число было бы
+    # обещанием, которое пайплайн не выполнит.
+    default_steps=8,
+    max_steps=8,
+    default_guidance=1.0,
+    guidance_param="none",
+    aspect_ratios=dict(_QWEN21_RATIOS),
+    default_aspect_ratio="1:1",
+    arbitrary_size=True,
+    dim_multiple=32,
+    min_dim=512,
+    max_dim=2048,
+    supports_negative_prompt=False,
+    # Отдельно не замерена: архитектура и режим те же, что у base, а число
+    # шагов на пик не влияет — берём его замер.
+    # Уточнить: scripts/measure_vram.py qwen-image-2.1-turbo.
+    peak_vram_mb=10700,
+    cpu_offload=True,
+    load_timeout_s=2400,
+    # Шагов всего 8, а кодирование промпта на CPU и декод стоят столько же,
+    # сколько у base, — поэтому на шаг закладываем с запасом.
+    seconds_per_step_hint=10.0,
+    notes="Дистилляция на 8 шагов без CFG: число шагов и guidance зашиты в чекпойнт "
+    "и из запроса не берутся, negative_prompt не принимается.",
+)
+
+# --- MOSS-Image --------------------------------------------------------------
+# OpenMOSS, Apache-2.0. SFT — дообученная версия Base с тем же пайплайном.
+# Пайплайн свой (pipeline_moss_image.py в репозитории весов), venv общий с qwen21.
+# Рекомендации авторов: 1–2 Мп на картинку, от 50 шагов, CFG 3.0 (3..6), стороны
+# кратны 16. Пресеты взяты на ~2 Мп.
+MOSS_IMAGE = ModelSpec(
+    id="moss-image",
+    backend="moss",
+    display_name="MOSS-Image SFT",
+    repo_id="OpenMOSS-Team/MOSS-Image-SFT",
+    default_steps=50,
+    max_steps=100,
+    default_guidance=3.0,
+    guidance_param="guidance_scale",
+    negative_needs_guidance_above=1.0,
+    aspect_ratios={
+        "1:1": (1408, 1408),
+        "16:9": (1920, 1088),
+        "9:16": (1088, 1920),
+        "4:3": (1664, 1248),
+        "3:4": (1248, 1664),
+        "3:2": (1728, 1152),
+        "2:3": (1152, 1728),
+    },
+    arbitrary_size=True,
+    dim_multiple=16,
+    min_dim=512,
+    max_dim=2048,
+    # Замерено 2026-11-17 на RTX 3090, пресет 16:9 (1920x1088), 50 шагов, CFG 3.0:
+    # пик 10772 МБ по счётчику torch (reserved) + ~340 МБ CUDA-контекста, +5%.
+    # По nvidia-smi снять не удалось: во время прогона карту делили соседи.
+    # Уточнить: scripts/measure_vram.py moss-image на свободной карте.
+    peak_vram_mb=11700,
+    cpu_offload=True,
+    load_timeout_s=2400,
+    # 290 с на 50 шагов вместе с двумя кодированиями на CPU (промпт и negative, ~45 с).
+    seconds_per_step_hint=6.0,
+    notes="CFG включён при любом guidance_scale, кроме 1.0 (два прохода на шаг); "
+    "пустой negative_prompt допустим.",
 )
 
 # --- Z-Image ----------------------------------------------------------------
@@ -267,6 +480,36 @@ ERNIE_IMAGE_SFT = ModelSpec(
     "а по памяти столько же. Встроенный PE так же выбрасывается при загрузке.",
 )
 
+# Тот же чекпойнт ERNIE-Image SFT, но все компоненты (энкодер Mistral3 7.2 ГБ,
+# трансформер 15 ГБ, VAE) резидентно на карте, без cpu_offload: для узла с большой
+# картой, где RAM хоста не трогаем. На 24 ГБ не помещается — такие узлы её не объявляют.
+ERNIE_IMAGE_FULL = ModelSpec(
+    id="ernie-image-full",
+    backend="ernie",
+    display_name="ERNIE-Image SFT (всё на карте)",
+    repo_id="baidu/ERNIE-Image",
+    variant="sft",
+    default_steps=50,
+    max_steps=100,
+    default_guidance=4.0,
+    guidance_param="guidance_scale",
+    aspect_ratios=dict(_ERNIE_RATIOS),
+    arbitrary_size=False,
+    dim_multiple=16,
+    # Замерено 2026-11-18 на RTX PRO 6000 (узел node-c), пресет 16:9, CFG 4.0: пик
+    # ~25400 МБ чистыми по nvidia-smi (соседи по карте шумят ±1 ГБ), резидентно
+    # после загрузки ~23.5 ГБ. Загрузка 18 с, 50 шагов — 107 с; RAM хоста +2.3 ГБ.
+    # Запас оставлен крупный: на 96 ГБ он ничего не стоит.
+    peak_vram_mb=30000,
+    weights_vram_mb=23000,
+    cpu_offload=False,
+    card_class_mb=98304,
+    load_timeout_s=2400,
+    seconds_per_step_hint=2.0,
+    notes="Полные веса, все компоненты на карте: для узла с большой картой. "
+    "Результат тот же, что у ernie-image; отличается только размещение.",
+)
+
 # --- HiDream-O1 -------------------------------------------------------------
 # Не diffusers: Qwen3VLForConditionalGeneration + вендорный models/pipeline.py.
 # device_map="cuda" без offload — единственная модель, которая при выгрузке
@@ -318,15 +561,89 @@ HIDREAM_O1 = ModelSpec(
 )
 
 
+# --- MiniMax-H3-Image -------------------------------------------------------
+# 33B DiT + 33B энкодер Qwen3-VL, по ~62 ГБ в bf16 каждый: модель не для 24 ГБ.
+# Живёт на отдельном узле с картой 96 ГБ, в docker-контейнере. Пайплайн в diffusers
+# только модульный; бэкенд держит энкодер и трансформер на карте по очереди и грузит
+# их с диска на каждую задачу — см. backends/minimax.py.
+# Пресеты — рекомендованные MiniMax, ~16.8 Мп каждый, все стороны кратны 32.
+# Лицензия весов — MiniMax-H3-Image Community License Agreement (LICENSE в репозитории модели).
+_MINIMAX_RATIOS = {
+    "1:1": (4096, 4096),
+    "4:3": (4736, 3552),
+    "3:4": (3552, 4736),
+    "3:2": (5024, 3360),
+    "2:3": (3360, 5024),
+    "16:9": (5472, 3072),
+    "9:16": (3072, 5472),
+    "21:9": (6272, 2688),
+    "9:21": (2688, 6272),
+}
+
+MINIMAX_H3_IMAGE = ModelSpec(
+    id="minimax-h3-image",
+    backend="minimax",
+    display_name="MiniMax-H3-Image",
+    repo_id="MiniMaxAI/MiniMax-H3-Image",
+    # Сетка из 6 сигм зашита в чекпойнт, у трансформера по выходной голове на шаг:
+    # num_inference_steps не существует. max_steps == default_steps — как у
+    # qwen-image-2.1-turbo: другое число было бы обещанием, которое пайплайн не выполнит.
+    default_steps=6,
+    max_steps=6,
+    # Guidance дистиллирован: ни CFG, ни negative_prompt у модели нет.
+    default_guidance=1.0,
+    guidance_param="none",
+    aspect_ratios=dict(_MINIMAX_RATIOS),
+    default_aspect_ratio="1:1",
+    # Произвольный размер — до 4096 по стороне (потолок схемы запроса), то есть не
+    # больше пикселей, чем в пресетах: пик VRAM пресетов его покрывает. Меньше 4 Мп
+    # модель всё равно считает на холсте 4 Мп и уменьшает результат.
+    arbitrary_size=True,
+    dim_multiple=32,
+    min_dim=1024,
+    max_dim=4096,
+    supports_negative_prompt=False,
+    # Замерено 2026-11-17 на RTX PRO 6000 (узел node-c): пресет 16:9 (5472x3072,
+    # 16.8 Мп) — пик 68364 МБ чистыми по nvidia-smi (стадия трансформера+VAE;
+    # стадия энкодера — 63.8 ГБ), +5%. На 2048x2048 пик 65.6 ГБ. Системная RAM
+    # хоста за задачу выросла на 0.4–2 ГБ: веса читаются через mmap.
+    peak_vram_mb=71800,
+    # Резидентных весов нет: между задачами бэкенд не держит на карте ничего
+    # (и сам выходит из процесса, отдавая CUDA-контекст).
+    weights_vram_mb=0,
+    cpu_offload=False,
+    card_class_mb=98304,
+    # /load только разбирает блоки пайплайна — секунды. Запас — на холодный импорт
+    # diffusers/transformers в свежем контейнере.
+    load_timeout_s=300,
+    # Чтение ~130 ГБ с диска входит во время ГЕНЕРАЦИИ, а не загрузки, поэтому
+    # «секунды на шаг» здесь — не про шаг денойза, а способ получить нужный тайм-аут
+    # шлюза: 240 + 6 * 55 * 3 = 1230 с (20.5 мин). Замер 2026-11-17: 267 с на
+    # 2048x2048 и 377 с на 5472x3072, из них денойз 5 с, остальное — чтение весов.
+    seconds_per_step_hint=55.0,
+    notes="6 шагов и guidance зашиты в чекпойнт: num_inference_steps и guidance_scale из "
+    "запроса не берутся, negative_prompt не принимается. Пресеты ~16.8 Мп, стороны до 6272 "
+    "доступны только через aspect_ratio (явные width/height ограничены 4096). Веса (~130 ГБ) "
+    "читаются с диска на каждую задачу: генерация занимает минуты.",
+)
+
+
 MODELS: dict[str, ModelSpec] = {
     m.id: m
     for m in (
         QWEN_IMAGE,
+        QWEN_IMAGE_21,
+        QWEN_IMAGE_21_BF16,
+        QWEN_IMAGE_21_FULL,
+        QWEN_IMAGE_21_TURBO,
+        MOSS_IMAGE,
         Z_IMAGE_TURBO,
         Z_IMAGE_BASE,
         ERNIE_IMAGE_TURBO,
         ERNIE_IMAGE_SFT,
+        ERNIE_IMAGE_FULL,
         HIDREAM_O1,
+        MINIMAX_H3_IMAGE,
     )
 }
 
@@ -337,12 +654,15 @@ MODELS_BY_BACKEND: dict[str, tuple[str, ...]] = {
 }
 
 # Порт воркера на локальной петле. На node-b те же порты, наружу — через ssh -L
-# на 18101..18104 (см. /etc/ssh-tunnels/node-b.env).
+# на 18101..18106 (см. /etc/ssh-tunnels/node-b.env).
 DEFAULT_WORKER_PORTS: dict[str, int] = {
     "qwen": 8101,
     "zimage": 8102,
     "ernie": 8103,
     "hidream": 8104,
+    "qwen21": 8105,
+    "moss": 8106,
+    "minimax": 8107,
 }
 
 
