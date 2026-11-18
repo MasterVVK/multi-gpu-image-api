@@ -148,10 +148,10 @@ class GenerationCancelled(BaseException):
     """Бросается из step-callback'а, когда шлюз попросил отменить задачу.
 
     Наследование от BaseException, а не Exception, — намеренное и обязательное.
-    HiDream зовёт свой callback внутри `try: ... except Exception: pass`
-    (models/pipeline.py:384-391), поэтому обычное исключение он молча проглотит
-    и отменить генерацию было бы нечем. BaseException проходит сквозь такой
-    перехват — ровно как KeyboardInterrupt.
+    Чужие пайплайны бывает, что зовут callback внутри `try: ... except Exception: pass`
+    (так делал вендорный код HiDream-O1, удалённой 18.11.2026), и обычное исключение
+    молча проглотилось бы — отменить генерацию было бы нечем. BaseException проходит
+    сквозь такой перехват — ровно как KeyboardInterrupt.
 
     Цена: обычные `except Exception` эту отмену не поймают, её нужно ловить явно.
     Все такие места — в backends/base.py и runner.py.

@@ -68,9 +68,9 @@ class GenerateRequest(BaseModel):
 
     model: str = Field(
         ...,
-        description="Идентификатор из реестра: qwen-image | qwen-image-2.1 | qwen-image-2.1-turbo | "
-        "z-image-turbo | z-image-base | "
-        "ernie-image-turbo | ernie-image | hidream-o1",
+        description="Идентификатор из реестра (полный список — GET /api/v1/models): qwen-image-2.1 | "
+        "qwen-image-2.1-turbo | z-image-turbo | z-image-base | ernie-image-turbo | ernie-image | "
+        "moss-image | flux3-klein-full | minimax-h3-image и др.",
     )
     prompt: str = Field(..., min_length=1, max_length=4000)
     negative_prompt: str = Field(default="", max_length=1000)
@@ -88,8 +88,8 @@ class GenerateRequest(BaseModel):
         validation_alias=AliasChoices("guidance_scale", "cfg_scale"),
         description="CFG. `cfg_scale` — устаревшее написание из qi-api, принимается как алиас.",
     )
-    shift: float | None = Field(default=None, ge=0.0, le=20.0, description="Только hidream-o1")
-    scheduler: str | None = Field(default=None, description="Только hidream-o1")
+    shift: float | None = Field(default=None, ge=0.0, le=20.0, description="Только моделям с параметром shift (сейчас в реестре таких нет)")
+    scheduler: str | None = Field(default=None, description="Только моделям со списком планировщиков (сейчас в реестре таких нет)")
     seed: int | None = Field(default=None, ge=0)
 
     use_pe: bool | None = Field(

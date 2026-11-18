@@ -14,7 +14,7 @@
 собственные воркеры.
 
     .venv/bin/python scripts/test_exclusive_lock.py
-    .venv/bin/python scripts/test_exclusive_lock.py --models z-image-turbo hidream-o1 --repeat 3
+    .venv/bin/python scripts/test_exclusive_lock.py --models z-image-turbo qwen-image-2.1 --repeat 3
 """
 
 from __future__ import annotations
@@ -103,7 +103,7 @@ class NodeWatcher(threading.Thread):
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--api", default="http://127.0.0.1:8010")
-    parser.add_argument("--models", nargs="*", default=["z-image-turbo", "hidream-o1", "z-image-base"])
+    parser.add_argument("--models", nargs="*", default=["z-image-turbo", "qwen-image-2.1", "z-image-base"])
     parser.add_argument("--repeat", type=int, default=2)
     parser.add_argument("--wait", type=float, default=3600.0)
     parser.add_argument("--vram-limit", type=int, default=23000, help="МБ, потолок занятости карты")

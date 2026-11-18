@@ -29,7 +29,6 @@ VRAM для карт, которыми вы владеете **не единол
 | Qwen-Image | 2.9.1 | 4.57.3 | 0.36.0 |
 | Z-Image | 2.10.0 | **5.1.0** | 0.36.0 |
 | ERNIE-Image | 2.5.1+cu121 | **5.5.4** | main @ `c8c8401` |
-| HiDream-O1 | 2.5.1+cu121 | **4.57.1** (жёсткий пин) | не используется, вендорный код |
 
 В один venv это не собирается. Поэтому «единый сервис» — это один публичный
 процесс, который вообще не импортирует torch, плюс тонкие воркеры, каждый из
@@ -44,8 +43,7 @@ VRAM для карт, которыми вы владеете **не единол
               │ узел node-a      │          │ узел node-b      │
               │ 8101 qwen        │          │ 18101 qwen       │
               │ 8102 zimage      │          │ 18102 zimage     │
-              │ 8103 ernie       │          │ 18104 hidream    │
-              │ 8104 hidream     │          │ 18105 qwen21     │
+              │ 8103 ernie       │          │ 18105 qwen21     │
               │ 8105 qwen21      │          │ 18106 moss       │
               │ 8106 moss        │          └──────────────────┘
               └──────────────────┘
@@ -72,7 +70,7 @@ VRAM для карт, которыми вы владеете **не единол
 | `moss-image` | 50 | 3.0 | 1408² и ещё 6, ~2 Мп | ×16 | 11.7 ГБ (замер по счётчику torch) |
 | `ernie-image-turbo` | 8 | 1.0 | 7 пресетов | нет | 17.2 ГБ (замер) |
 | `ernie-image` | 50 | 4.0 | те же | нет | 17.2 ГБ (перенос замера turbo) |
-| `hidream-o1` | 50 | 5.0, `shift` 3.0 | 11 пресетов до 3104×1312 | ×64 | 19.3 ГБ (замер) |
+| `flux3-klein-full` | 50 | 3.5 | 2048² и ещё 8, до 3072×1312 | ×16 | 36.5 ГБ (замер; только карта 96 ГБ) |
 
 «Замер» — `scripts/measure_vram.py`, на дефолтном пресете, за вычетом фона от
 соседей по карте, плюс 5%. Калибровка не формальность: у `qwen-image` цифра из
@@ -112,6 +110,18 @@ MOSS-Image (OpenMOSS, Apache-2.0) — бэкенд `moss` в том же venv, �
 
 Оба бэкенда требуют Python ≥ 3.11 (transformers ≥ 5.17) — на узле с системным 3.10 задайте
 `PYTHON=` для `infra/remote-node/bootstrap.sh`.
+
+FLUX.3 Image Klein (`black-forest-labs/flux-3-image-klein-base`, доступ по запросу) — бэкенд
+`flux3`: базовый, недистиллированный чекпойнт, все компоненты резидентно на карте — 20.5 ГБ
+весов и пик 36.5 ГБ (замер на 2560×1440: ~32 ГиБ выделено torch, плюс CUDA-контекст и запас).
+В 24 ГБ это не помещается, поэтому `flux3-klein-full` обслуживает только узел с большой картой
+(в примерах — `node-c`): docker-контейнер из `infra/big-node`, порт воркера 8104, на стороне
+шлюза туннель на 18304. Около 113 с на картинку 2560×1440 за 50 шагов. `negative_prompt`
+действует только при `guidance_scale > 1`; произвольный размер — кратный 16, до 3072 по
+стороне. Собственный апсемплер промпта FLUX.3 (отдельная 9B-модель) не используется: клиент
+присылает готовые полные описания сцены. Веса распространяются по FLUX Kommunity License v1.0
+(некоммерческое использование, а также коммерческое использование результатов для
+пользователей с оборотом до 5 млн долларов США).
 
 Бэкенд ERNIE выбрасывает встроенный в пайплайн prompt-enhancer (Ministral-3.3B)
 при загрузке. `use_pe=False` его не убирает: это *компонент* пайплайна, а не
@@ -163,8 +173,8 @@ API править не нужно.
   так отдаётся CUDA-контекст (~340 МБ на воркер);
 * при старте шлюз выгружает всё на всех воркерах, прежде чем принимать задачи;
 * каждое вмешательство пишется в таблицу `vram_incidents`, читается через
-  `GET /api/v1/nodes/{name}/incidents`. Реальные записи из наших прогонов:
-  `unload hidream-o1 — освобождено 16802 МБ`, `cancel_orphan`.
+  `GET /api/v1/nodes/{name}/incidents`. Записи выглядят так:
+  `unload <модель> — освобождено <N> МБ` или `cancel_orphan`.
 
 ## API
 
@@ -201,7 +211,7 @@ curl -sS "localhost:8010/api/v1/tasks/$TID/wait?timeout=600" -H "X-API-Key: $KEY
 ```python
 from openai import OpenAI
 c = OpenAI(base_url="http://localhost:8010/v1", api_key=KEY)
-r = c.images.generate(model="hidream-o1", prompt="blue whale over a city", size="2048x2048")
+r = c.images.generate(model="qwen-image-2.1", prompt="blue whale over a city", size="2048x2048")
 print(r.data[0].url)
 ```
 
@@ -233,7 +243,7 @@ uv sync                                    # venv шлюза (без torch)
 cp .env.example .env                       # задайте IMG_API_KEYS, IMG_WORKER_TOKEN
 ./scripts/install_worker_into_venvs.sh     # .pth в каждый venv модели
 ./scripts/install_systemd.sh               # юниты и env-файлы воркеров
-sudo systemctl enable --now images-worker@{qwen,zimage,ernie,hidream,qwen21,moss} images-api
+sudo systemctl enable --now images-worker@{qwen,zimage,ernie,qwen21,moss} images-api
 ```
 
 В проектах моделей не меняется ничего, кроме одного `.pth`-файла на venv; снимается
@@ -244,19 +254,19 @@ sudo systemctl enable --now images-worker@{qwen,zimage,ernie,hidream,qwen21,moss
 ```bash
 # на первом узле: снять версии, отправить код и веса по LAN
 ./scripts/capture_venv_locks.sh
-REMOTE=user@node-b MODELS="hidream zimage" ./scripts/sync_to_node.sh
+REMOTE=user@node-b MODELS="zimage moss" ./scripts/sync_to_node.sh
 
 # на втором узле: пересобрать venv из тех же версий
 cd images-api/infra/remote-node
-BACKENDS="hidream zimage" WORKER_TOKEN=<тот же, что у шлюза> ./bootstrap.sh
-sudo systemctl enable --now images-worker@hidream images-worker@zimage
+BACKENDS="zimage moss" WORKER_TOKEN=<тот же, что у шлюза> ./bootstrap.sh
+sudo systemctl enable --now images-worker@zimage images-worker@moss
 
 # обратно на первом: туннель, затем регистрация узла — без рестарта шлюза
 sudo systemctl enable --now images-tunnel@node-b
 curl -sS -X POST localhost:8010/api/v1/nodes -H "X-API-Key: $KEY" \
   -H 'Content-Type: application/json' -d '{
     "name":"node-b","kind":"remote",
-    "base_urls":{"hidream":"http://127.0.0.1:18104","zimage":"http://127.0.0.1:18102"},
+    "base_urls":{"zimage":"http://127.0.0.1:18102","moss":"http://127.0.0.1:18106"},
     "vram_reserve_mb":4096,"enabled":false}'
 curl -sS -X POST localhost:8010/api/v1/nodes/node-b/refresh -H "X-API-Key: $KEY"
 curl -sS -X PATCH localhost:8010/api/v1/nodes/node-b -H "X-API-Key: $KEY" \
@@ -281,10 +291,6 @@ tokenizers, safetensors, huggingface-hub — а остальное отдаёт 
 мажорной версии и печатает громкое предупреждение: молча подменять версию стека
 нельзя, это меняет картинки. На нашем втором узле torch и transformers совпали
 точно, разошёлся только numpy.
-
-`flash-attn` собирается из исходников и требует torch уже в сборочном окружении,
-поэтому ставится отдельно и последним. Если не соберётся — скрипт отключает его
-в пайплайне HiDream, это штатный обходной путь из документации самого проекта.
 
 ## Проверки
 
@@ -317,8 +323,6 @@ tokenizers, safetensors, huggingface-hub — а остальное отдаёт 
 * **Пресет `qwen` 4:3 — 1472×1136**, а не 1472×1140: 1140 не делится на 8, и
   diffusers молча переокруглял размер.
 * **API-ключ обязателен**, если сервис слушает не loopback.
-* `hidream-o1` примагничивает произвольный размер к ближайшему нативному (запрос
-  1024×1024 отдаёт 2048×2048). В ответе всегда фактический размер.
 
 ## Конфигурация
 

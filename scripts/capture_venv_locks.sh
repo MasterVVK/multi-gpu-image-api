@@ -15,7 +15,6 @@ declare -A VENVS=(
     [qwen]="$PROJECTS_ROOT/qi-api/venv"
     [zimage]="$PROJECTS_ROOT/Z-Image-Turbo/venv"
     [ernie]="$PROJECTS_ROOT/ERNIE-Image/venv"
-    [hidream]="$PROJECTS_ROOT/HiDream-O1-Image/venv"
     [qwen21]="$PROJECTS_ROOT/Qwen-Image-2.1/venv"
 )
 

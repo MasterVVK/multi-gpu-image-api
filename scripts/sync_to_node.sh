@@ -8,8 +8,8 @@
 #
 # Качать заново через SOCKS-прокси бессмысленно: те же байты лежат в метре отсюда.
 #
-#   REMOTE=user@node-b ./scripts/sync_to_node.sh              # код + веса hidream и zimage
-#   REMOTE=user@node-b MODELS="hidream" ./scripts/sync_to_node.sh
+#   REMOTE=user@node-b ./scripts/sync_to_node.sh              # код + веса zimage и moss
+#   REMOTE=user@node-b MODELS="zimage" ./scripts/sync_to_node.sh
 #   REMOTE=user@node-b DRY=1 ./scripts/sync_to_node.sh        # только показать объём
 
 set -euo pipefail
@@ -19,7 +19,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # нельзя, а угадать невозможно.
 REMOTE="${REMOTE:?укажите REMOTE=user@host второго узла}"
 SSH_PORT="${SSH_PORT:-22}"
-MODELS="${MODELS:-hidream zimage}"
+MODELS="${MODELS:-zimage moss}"
 HF="$HOME/.cache/huggingface/hub"
 # Корень каталогов проектов моделей; по умолчанию — домашний каталог.
 PROJECTS_ROOT="${IMG_PROJECTS_ROOT:-$HOME}"
@@ -45,15 +45,6 @@ rsync "${RSYNC_OPTS[@]}" \
 for model in $MODELS; do
     echo
     case "$model" in
-        hidream)
-            echo "=== веса hidream (~33 ГБ, локальный каталог)"
-            ssh -p "$SSH_PORT" "$REMOTE" "mkdir -p $PROJECTS_ROOT/HiDream-O1-Image"
-            # models/ — вендорный код пайплайна, без него бэкенд не заработает.
-            rsync "${RSYNC_OPTS[@]}" \
-                "$PROJECTS_ROOT/HiDream-O1-Image/weights" \
-                "$PROJECTS_ROOT/HiDream-O1-Image/models" \
-                "$REMOTE:$PROJECTS_ROOT/HiDream-O1-Image/"
-            ;;
         zimage)
             echo "=== веса z-image (~31 ГБ, кэш HuggingFace)"
             ssh -p "$SSH_PORT" "$REMOTE" 'mkdir -p ~/.cache/huggingface/hub'

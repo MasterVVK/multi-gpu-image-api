@@ -265,21 +265,20 @@ services:
               device_ids: ["${IMG_GPU_UUID:?задайте IMG_GPU_UUID в .env рядом с compose.yml, см. .env.example}"]
               capabilities: [gpu, compute, utility]
 
-  # HiDream-O1-Image: и так «вся на карте» (device_map="cuda", ~16 ГБ весов + активации).
-  # Свой образ: вендорному коду нужен transformers 4.57, а не 5.x как у остальных.
+  # FLUX.3 Image Klein base, целиком на карте (модель flux3-klein-full). Тот же образ:
+  # модульный пайплайн diffusers уже в нём. Апсемплер промпта (отдельная 9B-модель) не
+  # скачан и не грузится — клиент присылает готовые полные описания сцены.
   # Как у qwen21: через 15 с после картинки выгрузка, через минуту — выход процесса.
-  hidream:
-    image: images-worker-hidream:1
-    build:
-      context: .
-      dockerfile: Dockerfile.hidream
-    container_name: images-worker-hidream
+  flux3:
+    image: images-worker-minimax:1
+    container_name: images-worker-flux3
     restart: unless-stopped
     init: true
     stop_grace_period: 30s
     env_file: worker.env
     environment:
-      IMG_WORKER_BACKEND: hidream
+      IMG_WORKER_BACKEND: flux3
+      IMG_WORKER_MODELS: flux3-klein-full
       IMG_WORKER_HOST: 0.0.0.0
       IMG_WORKER_PORT: "8104"
       IMG_WORKER_IDLE_UNLOAD_S: "15"

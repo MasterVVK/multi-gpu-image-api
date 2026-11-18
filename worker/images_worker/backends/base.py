@@ -264,7 +264,8 @@ class Backend:
         """Callback для diffusers: единственная точка, где генерация умеет прерваться.
 
         Сигнатура `callback_on_step_end(pipe, step, timestep, kwargs)` есть у
-        Qwen/Z-Image/ERNIE. HiDream зовёт свой callback иначе — см. hidream.py.
+        Qwen/Z-Image/ERNIE. У модульных пайплайнов (flux3) и у moss его нет — там отмена
+        встроена в progress_bar цикла денойза.
         """
 
         def _cb(_pipe, _step, _timestep, callback_kwargs):

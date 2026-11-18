@@ -51,18 +51,18 @@ def test_ernie_rejects_explicit_size():
 
 def test_dim_multiple_enforced():
     with pytest.raises(ValidationError) as exc:
-        resolve(req(model="hidream-o1", width=1000, height=1024))
-    assert "кратно 64" in str(exc.value)
+        resolve(req(model="z-image-base", width=1000, height=1024))
+    assert "кратно 32" in str(exc.value)
 
 
 def test_width_without_height_rejected():
     with pytest.raises(ValueError):
-        req(model="hidream-o1", width=1024)
+        req(model="z-image-base", width=1024)
 
 
 def test_aspect_ratio_and_size_are_exclusive():
     with pytest.raises(ValueError):
-        req(model="hidream-o1", aspect_ratio="1:1", width=1024, height=1024)
+        req(model="z-image-base", aspect_ratio="1:1", width=1024, height=1024)
 
 
 def test_steps_above_model_max_rejected():
@@ -71,16 +71,18 @@ def test_steps_above_model_max_rejected():
     assert "20" in str(exc.value)
 
 
-def test_shift_only_for_hidream():
+def test_shift_rejected_without_model_support():
+    """shift принимала только hidream-o1 (удалена 18.11.2026): сейчас его не берёт никто."""
     with pytest.raises(ValidationError):
         resolve(req(model="z-image-turbo", shift=3.0))
-    assert resolve(req(model="hidream-o1", shift=2.0)).shift == 2.0
-
-
-def test_hidream_negative_prompt_rejected():
-    """У hidream в пайплайне негативного промпта нет — молча ронять его нельзя."""
     with pytest.raises(ValidationError):
-        resolve(req(model="hidream-o1", negative_prompt="blurry"))
+        resolve(req(model="flux3-klein-full", shift=2.0))
+
+
+def test_negative_prompt_rejected_where_pipeline_has_none():
+    """У minimax-h3-image в пайплайне негативного промпта нет — молча ронять его нельзя."""
+    with pytest.raises(ValidationError):
+        resolve(req(model="minimax-h3-image", negative_prompt="blurry"))
 
 
 def test_qwen_4x3_preset_is_divisible_by_8():
@@ -90,9 +92,9 @@ def test_qwen_4x3_preset_is_divisible_by_8():
 
 
 def test_coerce_size_rounds_down_for_arbitrary():
-    spec = get_spec("hidream-o1")
+    spec = get_spec("z-image-base")
     w, h, preset = coerce_size(spec, 1000, 1000)
-    assert (w, h) == (960, 960) and preset is None
+    assert (w, h) == (992, 992) and preset is None
 
 
 def test_coerce_size_snaps_to_preset_for_ernie():

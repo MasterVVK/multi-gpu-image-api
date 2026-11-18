@@ -12,13 +12,13 @@
 # Особенности node-b: Python 3.10 (на node-a — 3.12), драйвер 580.173.02,
 # GPU делится с RAG/TTS/whisper и собственной ollama.
 #
-#   BACKENDS="hidream zimage" WORKER_TOKEN=... ./bootstrap.sh
-#   PIP_PROXY=http://proxy:8888 BACKENDS="hidream" WORKER_TOKEN=... ./bootstrap.sh
+#   BACKENDS="zimage moss" PYTHON="$(uv python find 3.12)" WORKER_TOKEN=... ./bootstrap.sh
+#   PIP_PROXY=http://proxy:8888 BACKENDS="zimage" WORKER_TOKEN=... ./bootstrap.sh
 
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BACKENDS="${BACKENDS:-hidream zimage}"
+BACKENDS="${BACKENDS:-zimage moss}"
 NODE="${IMG_WORKER_NODE:-node-b}"
 # Корень каталогов проектов моделей; по умолчанию — домашний каталог.
 PROJECTS_ROOT="${IMG_PROJECTS_ROOT:-$HOME}"
@@ -29,12 +29,11 @@ declare -A PROJECT=(
     [qwen]="$PROJECTS_ROOT/qi-api"
     [zimage]="$PROJECTS_ROOT/Z-Image-Turbo"
     [ernie]="$PROJECTS_ROOT/ERNIE-Image"
-    [hidream]="$PROJECTS_ROOT/HiDream-O1-Image"
     [qwen21]="$PROJECTS_ROOT/Qwen-Image-2.1"
     # MOSS-Image делит venv с Qwen-Image 2.1 — стек у них общий.
     [moss]="$PROJECTS_ROOT/Qwen-Image-2.1"
 )
-declare -A PORT=([qwen]=8101 [zimage]=8102 [ernie]=8103 [hidream]=8104 [qwen21]=8105 [moss]=8106)
+declare -A PORT=([qwen]=8101 [zimage]=8102 [ernie]=8103 [qwen21]=8105 [moss]=8106)
 # Чей лок зависимостей использовать (по умолчанию — одноимённый).
 declare -A LOCK_OF=([moss]=qwen21)
 # Интерпретатор для новых venv. Стеку qwen21/moss нужен Python >= 3.11
@@ -81,7 +80,7 @@ for backend in $BACKENDS; do
     # torch ставим отдельно и первым: у бэкендов разные сборки CUDA, и если
     # отдать это на откуп общему резолверу, он подтянет не ту.
     case "$backend" in
-        ernie|hidream)
+        ernie)
             "$root/venv/bin/pip" install --quiet ${PIP_PROXY:+--proxy "$PIP_PROXY"} \
                 --index-url https://download.pytorch.org/whl/cu121 \
                 "torch==2.5.1+cu121" "torchvision==0.20.1+cu121"
@@ -119,11 +118,10 @@ for backend in $BACKENDS; do
     CRITICAL='^(transformers|diffusers|accelerate|tokenizers|safetensors|huggingface[-_]hub|numpy|sentencepiece|einops)=='
     grep -iE "$CRITICAL" "$lock" > /tmp/$backend.pinned.txt || true
 
-    # Остальные — только имена. flash-attn исключён: он собирается из исходников
-    # и требует torch уже в сборочном окружении, поэтому идёт отдельно и ниже.
-    # Хвост == обязателен: без него "^torch" отсекает заодно torchao, а он нужен
-    # для FP8-квантизации Qwen (иначе "TorchAoConfig requires torchao").
-    grep -viE "^(torch|torchvision|torchaudio|triton)==|^nvidia-|^flash[-_]attn==|^diffusers @ " "$lock" \
+    # Остальные — только имена. Хвост == обязателен: без него "^torch" отсекает
+    # заодно torchao, а он нужен для FP8-квантизации Qwen (иначе "TorchAoConfig
+    # requires torchao").
+    grep -viE "^(torch|torchvision|torchaudio|triton)==|^nvidia-|^diffusers @ " "$lock" \
         | grep -viE "$CRITICAL" \
         | cut -d= -f1 | grep -v '^$' > /tmp/$backend.loose.txt
 
@@ -153,19 +151,6 @@ for backend in $BACKENDS; do
         "$root/venv/bin/pip" install --quiet ${PIP_PROXY:+--proxy "$PIP_PROXY"} "$pkg" \
             || echo "    пропущен: $pkg"
     done < /tmp/$backend.loose.txt
-
-    # flash-attn ускоряет hidream примерно на четверть, но обязательным не является.
-    if grep -qiE '^flash[-_]attn' "$lock"; then
-        FA_VERSION="$(grep -iE '^flash[-_]attn' "$lock" | head -1 | cut -d= -f3)"
-        echo "  собираю flash-attn==$FA_VERSION (может занять минуты)"
-        if ! "$root/venv/bin/pip" install ${PIP_PROXY:+--proxy "$PIP_PROXY"} \
-                --no-build-isolation "flash-attn==$FA_VERSION" > /tmp/$backend.fa.log 2>&1; then
-            echo "  flash-attn не собрался — отключаю его в пайплайне HiDream"
-            # Штатный обходной путь, описан в README самого HiDream.
-            sed -i 's/"use_flash_attn": True,/"use_flash_attn": False,/' \
-                "$root/models/pipeline.py" 2>/dev/null || true
-        fi
-    fi
 
     # images_worker — .pth-файлом, чтобы pip гарантированно не тронул пины.
     site="$("$root/venv/bin/python" -c 'import sysconfig;print(sysconfig.get_paths()["purelib"])')"
@@ -199,7 +184,6 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 NO_PROXY=127.0.0.1,localhost,::1
 no_proxy=127.0.0.1,localhost,::1
 EOF
-    [[ "$backend" == "hidream" ]] && echo "IMG_HIDREAM_REPO_DIR=$root" >> "$tmp"
     # Веса привозит sync_to_node.sh; в сеть этим бэкендам ходить незачем, а MOSS
     # ещё и исполняет код пайплайна из снапшота — он не должен обновиться сам.
     [[ "$backend" == "qwen21" || "$backend" == "moss" ]] && echo "HF_HUB_OFFLINE=1" >> "$tmp"

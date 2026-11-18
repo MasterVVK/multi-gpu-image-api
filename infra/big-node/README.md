@@ -36,7 +36,6 @@
 |---|---|
 | `worker/` | Пакет воркера для образа — копия `../../worker` из корня репозитория. В git не хранится: кладётся перед сборкой (3.1) |
 | `Dockerfile`, `requirements.txt`, `.dockerignore` | Образ: python 3.12, torch 2.9.1+cu128, diffusers d9586a3, transformers 5.23.0 |
-| `Dockerfile.hidream`, `requirements-hidream.txt`, `hidream_vendor/` | Отдельный образ для HiDream-O1-Image (transformers 4.57 и вендорный код) |
 | `compose.yml`, `worker.env.example`, `.env.example` | Запуск на узле: токен и имя узла — в `worker.env`, UUID карты — в `.env` |
 | `check_node.py` | Проверка узла без обращения к CUDA (в образе — `/opt/check_node.py`) |
 | `tests/` | Тесты на CPU: `run_tests.sh`, пробники памяти `rss_probe.py`, `memcap_probe.py`. Поддельный кэш весов `tests/fake_hf` собирается при первом запуске и в git не хранится |
@@ -62,10 +61,9 @@ rm -rf worker && cp -r ../../worker worker   # пакет воркера в ко
 ```bash
 HOST=user@<хост>
 DIR=minimax-h3-image        # каталог комплекта на хосте, путь от домашнего каталога
-rsync -av Dockerfile Dockerfile.hidream compose.yml requirements.txt requirements-hidream.txt \
+rsync -av Dockerfile compose.yml requirements.txt \
       .dockerignore check_node.py worker.env.example .env.example download*.sh "$HOST:$DIR/"
 rsync -av --delete --exclude __pycache__ worker/ "$HOST:$DIR/worker/"
-rsync -av --delete hidream_vendor/ "$HOST:$DIR/hidream_vendor/"
 ```
 
 Каталог `hf/` с весами на хосте этими командами не затрагивается.
@@ -207,7 +205,7 @@ curl -s --max-time 1800 -D headers.txt -o first.png -w 'http=%{http_code} %{size
 cd /путь/к/images-api && pytest tests/test_registry.py tests/test_resolve.py
 
 # 2. туннель: в /etc/ssh-tunnels/node-c.env форварды на порты воркеров узла
-#    (-L 18307:127.0.0.1:8107 — minimax; qwen21, ernie, hidream, zimage, moss — 18305, 18303, 18304, 18302, 18306)
+#    (-L 18307:127.0.0.1:8107 — minimax; qwen21, ernie, flux3, zimage, moss — 18305, 18303, 18304, 18302, 18306)
 sudo systemctl enable --now images-tunnel@node-c
 curl -s 127.0.0.1:18307/healthz
 

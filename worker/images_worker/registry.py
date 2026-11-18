@@ -4,7 +4,6 @@
   qi-api/src/qi_api/config.py            (ASPECT_RATIO_TO_SIZE, default_steps)
   Z-Image-Turbo/src/z_image_api/config.py (MODEL_CONFIGS)
   ERNIE-Image/src/ernie_image_api/config.py
-  HiDream-O1-Image/src/hidream_o1_api/config.py (MODEL_CONFIG)
 
 Идентификаторы плоские: раньше `model: "turbo"` был валиден в трёх сервисах
 с тремя разными смыслами. Теперь `z-image-turbo` и `ernie-image-turbo` — разные вещи.
@@ -25,7 +24,7 @@ PROJECTS_ROOT = os.environ.get("IMG_PROJECTS_ROOT", os.path.expanduser("~"))
 
 # Бэкенд = отдельный процесс со своим venv. Один бэкенд обслуживает 1..N моделей,
 # но резидентной в каждый момент держит ровно одну.
-BACKENDS = ("qwen", "zimage", "ernie", "hidream", "qwen21", "moss", "minimax")
+BACKENDS = ("qwen", "zimage", "ernie", "flux3", "qwen21", "moss", "minimax")
 
 # Как называется параметр CFG в вызове конкретного пайплайна.
 # qwen: QwenImagePipeline принимает и `guidance_scale`, и `true_cfg_scale`,
@@ -43,7 +42,7 @@ class ModelSpec:
     display_name: str
 
     # --- источник весов ---
-    # repo_id — HuggingFace repo; local_path — каталог на диске (только hidream).
+    # repo_id — HuggingFace repo; local_path — каталог на диске вместо кэша HF.
     # files — для zimage, который собирается вручную из отдельных safetensors.
     repo_id: str | None = None
     local_path: str | None = None
@@ -80,9 +79,9 @@ class ModelSpec:
     # peak_vram_mb — пик по nvidia-smi во время генерации в дефолтном разрешении.
     # weights_vram_mb — сколько карта держит, когда модель загружена, но простаивает.
     #   Для моделей с cpu_offload это 0: веса лежат в системной RAM и приезжают
-    #   помодульно. Ненулевое значение только у hidream (device_map="cuda").
+    #   помодульно. Ненулевое — у моделей «всё на карте».
     #   Планировщик вычитает его, если модель уже резидентна, — иначе резидентная
-    #   hidream не проходила бы собственную проверку: её 16.4 ГБ уже в used_mb.
+    #   модель не проходила бы собственную проверку: её веса уже в used_mb.
     #
     # Замерено scripts/measure_vram.py 2026-08-03 на node-b (RTX 3090), дефолтный
     # пресет, за вычетом фона от соседей по карте; сверху +5%.
@@ -96,7 +95,7 @@ class ModelSpec:
     weights_vram_mb: int = 0
     cpu_offload: bool = False
     # Холодная загрузка с диска реально занимает минуты: замерено 131 с на шард
-    # у hidream (33 ГБ, 8 шардов) при непрогретом page cache. Тайм-ауты с запасом.
+    # (33 ГБ, 8 шардов) при непрогретом page cache. Тайм-ауты с запасом.
     load_timeout_s: int = 1800
     seconds_per_step_hint: float = 3.0
     # Класс карты, под которую рассчитана модель: её пик обязан помещаться в такую карту.
@@ -574,54 +573,48 @@ ERNIE_IMAGE_FULL = ModelSpec(
     "Результат тот же, что у ernie-image; отличается только размещение.",
 )
 
-# --- HiDream-O1 -------------------------------------------------------------
-# Не diffusers: Qwen3VLForConditionalGeneration + вендорный models/pipeline.py.
-# device_map="cuda" без offload — единственная модель, которая при выгрузке
-# реально возвращает VRAM (16.4 ГБ).
-HIDREAM_O1 = ModelSpec(
-    id="hidream-o1",
-    backend="hidream",
-    display_name="HiDream-O1-Image",
-    local_path=os.environ.get(
-        "IMG_HIDREAM_MODEL_PATH",
-        os.path.join(PROJECTS_ROOT, "HiDream-O1-Image", "weights", "HiDream-O1-Image"),
-    ),
+# --- FLUX.3 Image Klein -----------------------------------------------------
+# Базовый (недистиллированный) чекпойнт: трансформер 5.6B + энкодер Qwen3-VL-4B, VAE в fp32.
+# Апсемплер промпта (отдельная 9B-модель) не используется: клиент присылает готовые
+# полные описания сцены — см. backends/flux3.py. До 4 Мп на кадр, стороны кратны 16.
+_FLUX3_RATIOS = {
+    "1:1": (2048, 2048),
+    "16:9": (2560, 1440),
+    "9:16": (1440, 2560),
+    "4:3": (2304, 1728),
+    "3:4": (1728, 2304),
+    "3:2": (2496, 1664),
+    "2:3": (1664, 2496),
+    "21:9": (3072, 1312),
+    "9:21": (1312, 3072),
+}
+
+FLUX3_KLEIN_FULL = ModelSpec(
+    id="flux3-klein-full",
+    backend="flux3",
+    display_name="FLUX.3 Image Klein base (всё на карте)",
+    repo_id="black-forest-labs/flux-3-image-klein-base",
     default_steps=50,
     max_steps=100,
-    default_guidance=5.0,
+    default_guidance=3.5,
     guidance_param="guidance_scale",
-    default_shift=3.0,
-    schedulers=("default", "flow_match", "flash"),
-    default_scheduler="default",
-    aspect_ratios={
-        "1:1": (2048, 2048),
-        "4:3": (2304, 1728),
-        "3:4": (1728, 2304),
-        "16:9": (2560, 1440),
-        "9:16": (1440, 2560),
-        "3:2": (2496, 1664),
-        "2:3": (1664, 2496),
-        "21:9": (3104, 1312),
-        "9:21": (1312, 3104),
-        "9:7": (2304, 1792),
-        "7:9": (1792, 2304),
-    },
+    negative_needs_guidance_above=1.0,
+    aspect_ratios=dict(_FLUX3_RATIOS),
     arbitrary_size=True,
-    dim_multiple=64,
+    dim_multiple=16,
     min_dim=512,
-    max_dim=2048,
-    supports_negative_prompt=False,
-    # Замерено 2026-08-03: пик 18375 МБ, в покое держит 15883 МБ.
-    peak_vram_mb=19300,
-    weights_vram_mb=15900,
+    max_dim=3072,
+    # Замерено 2026-11-18 на RTX PRO 6000 (узел с большой картой), 16:9 (2560x1440),
+    # 50 шагов, CFG 3.5: torch max_memory_allocated 32.1 ГиБ; +контекст CUDA и запас.
+    # Генерация ~113 с, загрузка ~90 с.
+    peak_vram_mb=36500,
+    weights_vram_mb=20500,
     cpu_offload=False,
+    card_class_mb=98304,
     load_timeout_s=2400,
-    seconds_per_step_hint=3.0,
-    notes="Пресеты 16:9/21:9/9:16/9:21 превышают max_dim=2048 и доступны только "
-    "через aspect_ratio, но не через явные width/height. "
-    "Вендорный pipeline примагничивает произвольный размер к ближайшему нативному: "
-    "запрос 1024x1024 отдаёт 2048x2048 — проверено. Поэтому фактический размер "
-    "берётся у готовой картинки, а не из запроса.",
+    seconds_per_step_hint=2.3,
+    notes="Лицензия весов — FLUX Kommunity License v1.0 (некоммерческое использование и "
+    "коммерческие результаты для пользователей с оборотом до $5 млн; см. LICENSE.md репозитория).",
 )
 
 
@@ -708,7 +701,7 @@ MODELS: dict[str, ModelSpec] = {
         ERNIE_IMAGE_TURBO,
         ERNIE_IMAGE_SFT,
         ERNIE_IMAGE_FULL,
-        HIDREAM_O1,
+        FLUX3_KLEIN_FULL,
         MINIMAX_H3_IMAGE,
     )
 }
@@ -725,7 +718,7 @@ DEFAULT_WORKER_PORTS: dict[str, int] = {
     "qwen": 8101,
     "zimage": 8102,
     "ernie": 8103,
-    "hidream": 8104,
+    "flux3": 8104,
     "qwen21": 8105,
     "moss": 8106,
     "minimax": 8107,

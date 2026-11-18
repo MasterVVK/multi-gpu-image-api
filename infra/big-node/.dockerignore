@@ -2,8 +2,6 @@
 # (тесты, поддельные кэши, веса в ./hf на боевом хосте — 130 ГБ!) в контекст не попадает.
 *
 !requirements.txt
-!requirements-hidream.txt
-!hidream_vendor
 !worker
 !check_node.py
 **/__pycache__

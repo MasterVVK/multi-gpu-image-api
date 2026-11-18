@@ -1,9 +1,0 @@
-# Снято с node-a 2026-08-03 из $IMG_PROJECTS_ROOT/HiDream-O1-Image/venv
-# python: Python 3.12.7
-# ВНИМАНИЕ: на node-b Python 3.10 — колёса нужны под cp310.
-#   torch==2.5.1+cu121
-#   torchvision==0.20.1+cu121
-#   transformers==4.57.1
-#   diffusers==0.38.0
-#   accelerate==1.13.0
-#   safetensors==0.8.0-rc.0

@@ -29,7 +29,6 @@ BACKENDS=(
     "qwen:8101:$PROJECTS_ROOT/qi-api/venv"
     "zimage:8102:$PROJECTS_ROOT/Z-Image-Turbo/venv"
     "ernie:8103:$PROJECTS_ROOT/ERNIE-Image/venv"
-    "hidream:8104:$PROJECTS_ROOT/HiDream-O1-Image/venv"
     "qwen21:8105:$PROJECTS_ROOT/Qwen-Image-2.1/venv"
     # MOSS-Image живёт в том же venv, что и Qwen-Image 2.1: стек у них общий.
     "moss:8106:$PROJECTS_ROOT/Qwen-Image-2.1/venv"
@@ -92,10 +91,6 @@ HF_HUB_DOWNLOAD_TIMEOUT=600
 HF_HUB_ETAG_TIMEOUT=300
 EOF
             ;;
-        hidream)
-            # Веса локальные, сеть не нужна вовсе.
-            echo "IMG_HIDREAM_REPO_DIR=$PROJECTS_ROOT/HiDream-O1-Image" >> "$tmp"
-            ;;
         qwen21|moss)
             # Веса уже в кэше HuggingFace, и сверять их с сетью при каждой загрузке
             # незачем: без прокси это минуты тайм-аутов до отката на кэш.
@@ -111,5 +106,5 @@ done
 sudo systemctl daemon-reload
 echo
 echo "Готово. Дальше:"
-echo "  sudo systemctl enable --now images-worker@{qwen,zimage,ernie,hidream,qwen21,moss}"
+echo "  sudo systemctl enable --now images-worker@{qwen,zimage,ernie,qwen21,moss}"
 echo "  sudo systemctl enable --now images-api"

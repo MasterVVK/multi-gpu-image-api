@@ -31,7 +31,6 @@ The models we needed sit on mutually incompatible stacks:
 | Qwen-Image | 2.9.1 | 4.57.3 | 0.36.0 |
 | Z-Image | 2.10.0 | **5.1.0** | 0.36.0 |
 | ERNIE-Image | 2.5.1+cu121 | **5.5.4** | main @ `c8c8401` |
-| HiDream-O1 | 2.5.1+cu121 | **4.57.1** (hard pin) | not used, vendored code |
 
 They cannot share a virtualenv. So "one service" means one public process that
 never imports torch, plus thin workers, each launched from its own venv:
@@ -45,8 +44,7 @@ clients ──8010──▶ gateway  (own .venv, NO torch)
               │ node-a           │          │ node-b           │
               │ 8101 qwen        │          │ 18101 qwen       │
               │ 8102 zimage      │          │ 18102 zimage     │
-              │ 8103 ernie       │          │ 18104 hidream    │
-              │ 8104 hidream     │          │ 18105 qwen21     │
+              │ 8103 ernie       │          │ 18105 qwen21     │
               │ 8105 qwen21      │          │ 18106 moss       │
               │ 8106 moss        │          └──────────────────┘
               └──────────────────┘
@@ -73,7 +71,7 @@ only writer to disk. A remote node therefore needs no shared filesystem, and
 | `moss-image` | 50 | 3.0 | 1408² + 6 more, ~2 MP | ×16 | 11.7 GB (measured via torch counters) |
 | `ernie-image-turbo` | 8 | 1.0 | 7 presets | no | 17.2 GB (measured) |
 | `ernie-image` | 50 | 4.0 | same | no | 17.2 GB (inferred) |
-| `hidream-o1` | 50 | 5.0, `shift` 3.0 | 11 presets up to 3104×1312 | ×64 | 19.3 GB (measured) |
+| `flux3-klein-full` | 50 | 3.5 | 2048² + 8 more, up to 3072×1312 | ×16 | 36.5 GB (measured; 96 GB card only) |
 
 Qwen-Image 2.1 runs in its own `qwen21` backend (separate venv: it needs
 `QwenImage21Pipeline` from diffusers main and transformers ≥ 5.17). To fit a shared
@@ -100,6 +98,18 @@ pinned snapshot. The text encoder stays on the CPU here too. CFG is on for any
 
 Both backends need Python ≥ 3.11 (transformers ≥ 5.17): on a node whose system Python is
 3.10, set `PYTHON=` for `infra/remote-node/bootstrap.sh`.
+
+FLUX.3 Image Klein (`black-forest-labs/flux-3-image-klein-base`, gated) is the `flux3`
+backend: the base, non-distilled checkpoint with every component resident on the card —
+20.5 GB of weights and a 36.5 GB peak (measured at 2560×1440: ~32 GiB allocated by torch,
+plus the CUDA context and a margin). That does not fit a 24 GB node, so `flux3-klein-full`
+is served only by the big-card node (`node-c` in the examples): a docker container from
+`infra/big-node`, worker port 8104, tunnelled to 18304 on the gateway side. About 113 s per
+2560×1440 image at 50 steps. `negative_prompt` only applies when `guidance_scale > 1`;
+arbitrary sizes must be multiples of 16, up to 3072 per side. FLUX.3's own 9B prompt
+upsampler is not used: clients are expected to send full scene descriptions. The weights are
+under the FLUX Kommunity License v1.0 (non-commercial use, plus commercial use of outputs for
+users under US$5M in revenue).
 
 "Measured" means `scripts/measure_vram.py`, at the default preset, minus the
 background from co-tenants, plus 5%. Calibration is not a formality: for
@@ -158,8 +168,8 @@ would be killed.
   the only way to give back the CUDA context (~340 MB per worker);
 * on startup the gateway unloads everything on every worker before accepting work;
 * every intervention is recorded in a `vram_incidents` table, readable at
-  `GET /api/v1/nodes/{name}/incidents`. Real entries from our runs:
-  `unload hidream-o1 — freed 16802 MB`, `cancel_orphan`.
+  `GET /api/v1/nodes/{name}/incidents`. Entries look like
+  `unload <model> — freed <N> MB` or `cancel_orphan`.
 
 ## API
 
@@ -196,7 +206,7 @@ curl -sS "localhost:8010/api/v1/tasks/$TID/wait?timeout=600" -H "X-API-Key: $KEY
 ```python
 from openai import OpenAI
 c = OpenAI(base_url="http://localhost:8010/v1", api_key=KEY)
-r = c.images.generate(model="hidream-o1", prompt="blue whale over a city", size="2048x2048")
+r = c.images.generate(model="qwen-image-2.1", prompt="blue whale over a city", size="2048x2048")
 print(r.data[0].url)
 ```
 
@@ -229,7 +239,7 @@ uv sync                                    # gateway venv (no torch)
 cp .env.example .env                       # set IMG_API_KEYS, IMG_WORKER_TOKEN
 ./scripts/install_worker_into_venvs.sh     # .pth into each model venv
 ./scripts/install_systemd.sh               # units and per-worker env files
-sudo systemctl enable --now images-worker@{qwen,zimage,ernie,hidream,qwen21,moss} images-api
+sudo systemctl enable --now images-worker@{qwen,zimage,ernie,qwen21,moss} images-api
 ```
 
 Nothing in the model projects is modified except one `.pth` file per venv,
@@ -240,19 +250,19 @@ removable with `./scripts/install_worker_into_venvs.sh --uninstall`.
 ```bash
 # on the primary: capture versions, then ship code and weights over the LAN
 ./scripts/capture_venv_locks.sh
-REMOTE=user@node-b MODELS="hidream zimage" ./scripts/sync_to_node.sh
+REMOTE=user@node-b MODELS="zimage moss" ./scripts/sync_to_node.sh
 
 # on the second node: rebuild the venvs from those versions
 cd images-api/infra/remote-node
-BACKENDS="hidream zimage" WORKER_TOKEN=<same as gateway> ./bootstrap.sh
-sudo systemctl enable --now images-worker@hidream images-worker@zimage
+BACKENDS="zimage moss" WORKER_TOKEN=<same as gateway> ./bootstrap.sh
+sudo systemctl enable --now images-worker@zimage images-worker@moss
 
 # back on the primary: tunnel, then register the node — no gateway restart
 sudo systemctl enable --now images-tunnel@node-b
 curl -sS -X POST localhost:8010/api/v1/nodes -H "X-API-Key: $KEY" \
   -H 'Content-Type: application/json' -d '{
     "name":"node-b","kind":"remote",
-    "base_urls":{"hidream":"http://127.0.0.1:18104","zimage":"http://127.0.0.1:18102"},
+    "base_urls":{"zimage":"http://127.0.0.1:18102","moss":"http://127.0.0.1:18106"},
     "vram_reserve_mb":4096,"enabled":false}'
 curl -sS -X POST localhost:8010/api/v1/nodes/node-b/refresh -H "X-API-Key: $KEY"
 curl -sS -X PATCH localhost:8010/api/v1/nodes/node-b -H "X-API-Key: $KEY" \
@@ -277,10 +287,6 @@ local interpreter. When a hard pin is unavailable it falls back within the major
 version and prints a loud warning: silently substituting a stack version changes
 the images. On our second node torch and transformers matched exactly; only numpy
 differed.
-
-`flash-attn` builds from source and needs torch already present in the build
-environment, so it is installed separately and last. If it fails to build the
-script disables it in HiDream's pipeline — the workaround documented upstream.
 
 ## Verification
 
@@ -313,8 +319,6 @@ that the task is not silently lost.
 * **`qwen` 4:3 preset is 1472×1136**, not 1472×1140 — 1140 is not divisible by 8
   and diffusers silently re-rounded it.
 * **An API key is mandatory** when the service binds to anything but loopback.
-* `hidream-o1` snaps arbitrary sizes to the nearest native resolution (asking for
-  1024×1024 yields 2048×2048). The response always reports the actual size.
 
 ## Configuration
 

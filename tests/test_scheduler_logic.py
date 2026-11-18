@@ -15,13 +15,13 @@ def test_offload_model_needs_full_peak_even_when_resident():
     assert required_mb("z-image-turbo", resident=False) == spec.peak_vram_mb
 
 
-def test_resident_hidream_asks_only_for_the_difference():
-    """У hidream веса уже в used_mb — требовать их второй раз нельзя,
+def test_resident_model_asks_only_for_the_difference():
+    """У модели «всё на карте» веса уже в used_mb — требовать их второй раз нельзя,
     иначе резидентная модель не проходила бы собственную проверку."""
-    spec = get_spec("hidream-o1")
+    spec = get_spec("flux3-klein-full")
     assert spec.weights_vram_mb > 0
-    cold = required_mb("hidream-o1", resident=False)
-    warm = required_mb("hidream-o1", resident=True)
+    cold = required_mb("flux3-klein-full", resident=False)
+    warm = required_mb("flux3-klein-full", resident=True)
     assert cold == spec.peak_vram_mb
     assert warm == spec.peak_vram_mb - spec.weights_vram_mb
     assert warm < cold
@@ -29,7 +29,7 @@ def test_resident_hidream_asks_only_for_the_difference():
 
 def test_required_never_drops_to_zero():
     """Даже у резидентной модели нужен запас под активации."""
-    assert required_mb("hidream-o1", resident=True) >= 1024
+    assert required_mb("flux3-klein-full", resident=True) >= 1024
 
 
 def test_timeout_has_warmup_allowance():
@@ -40,7 +40,7 @@ def test_timeout_has_warmup_allowance():
 
 
 def test_timeout_grows_with_steps():
-    assert generate_timeout("hidream-o1", 50) > generate_timeout("hidream-o1", 10)
+    assert generate_timeout("flux3-klein-full", 50) > generate_timeout("flux3-klein-full", 10)
 
 
 def test_every_model_timeout_covers_documented_runtime():
@@ -50,7 +50,7 @@ def test_every_model_timeout_covers_documented_runtime():
                      "qwen-image-2.1-full", "qwen-image-2.1-turbo", "moss-image",
                      "minimax-h3-image",
                      "z-image-turbo", "z-image-base",
-                     "ernie-image-turbo", "ernie-image", "hidream-o1"):
+                     "ernie-image-turbo", "ernie-image", "flux3-klein-full"):
         spec = get_spec(model_id)
         expected = spec.default_steps * spec.seconds_per_step_hint
         assert generate_timeout(model_id, None) > expected * 2

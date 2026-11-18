@@ -26,10 +26,10 @@ def get_backend(name: str) -> Backend:
         from .ernie import ErnieBackend
 
         return ErnieBackend()
-    if name == "hidream":
-        from .hidream import HiDreamBackend
+    if name == "flux3":
+        from .flux3 import Flux3Backend
 
-        return HiDreamBackend()
+        return Flux3Backend()
     if name == "qwen21":
         from .qwen21 import Qwen21Backend
 

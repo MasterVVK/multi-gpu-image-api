@@ -38,7 +38,7 @@ def test_presets_fit_the_card(model_id):
     spec = get_spec(model_id)
     assert spec.peak_vram_mb < spec.card_class_mb
     if model_id not in {"minimax-h3-image", "qwen-image-2.1-full", "ernie-image-full",
-                        "z-image-base-full", "moss-image-full"}:
+                        "z-image-base-full", "moss-image-full", "flux3-klein-full"}:
         assert spec.card_class_mb == 24576
 
 

@@ -22,7 +22,6 @@ VENVS=(
     "$PROJECTS_ROOT/qi-api/venv"
     "$PROJECTS_ROOT/Z-Image-Turbo/venv"
     "$PROJECTS_ROOT/ERNIE-Image/venv"
-    "$PROJECTS_ROOT/HiDream-O1-Image/venv"
     "$PROJECTS_ROOT/Qwen-Image-2.1/venv"
     "$(cd "$WORKER_DIR/.." && pwd)/.venv"
 )

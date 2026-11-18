@@ -10,8 +10,8 @@
 # Ставите юнит вручную — замените сами, это единственное место.
 [Unit]
 Description=images-api gateway
-After=network.target images-worker@qwen.service images-worker@zimage.service images-worker@ernie.service images-worker@hidream.service images-worker@qwen21.service images-worker@moss.service
-Wants=images-worker@qwen.service images-worker@zimage.service images-worker@ernie.service images-worker@hidream.service images-worker@qwen21.service images-worker@moss.service
+After=network.target images-worker@qwen.service images-worker@zimage.service images-worker@ernie.service images-worker@qwen21.service images-worker@moss.service
+Wants=images-worker@qwen.service images-worker@zimage.service images-worker@ernie.service images-worker@qwen21.service images-worker@moss.service
 
 [Service]
 Type=simple

@@ -18,7 +18,7 @@ WAIT="${WAIT:-1750}"   # предел /tasks/{id}/wait — 1800 с
 
 MODELS=("$@")
 if [[ ${#MODELS[@]} -eq 0 ]]; then
-    MODELS=(z-image-turbo z-image-base qwen-image qwen-image-2.1-turbo qwen-image-2.1 moss-image ernie-image-turbo ernie-image hidream-o1)
+    MODELS=(z-image-turbo z-image-base qwen-image qwen-image-2.1-turbo qwen-image-2.1 moss-image ernie-image-turbo ernie-image)
 fi
 
 mkdir -p "$OUT"

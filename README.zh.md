@@ -28,7 +28,6 @@
 | Qwen-Image | 2.9.1 | 4.57.3 | 0.36.0 |
 | Z-Image | 2.10.0 | **5.1.0** | 0.36.0 |
 | ERNIE-Image | 2.5.1+cu121 | **5.5.4** | main @ `c8c8401` |
-| HiDream-O1 | 2.5.1+cu121 | **4.57.1**（硬锁定） | 不使用，自带代码 |
 
 它们无法共存于同一个虚拟环境。所以"统一服务"的含义是：一个从不 import torch 的
 公开进程，加上若干轻量工作进程，每个都从自己的 venv 启动：
@@ -42,8 +41,7 @@
               │ 节点 node-a      │          │ 节点 node-b      │
               │ 8101 qwen        │          │ 18101 qwen       │
               │ 8102 zimage      │          │ 18102 zimage     │
-              │ 8103 ernie       │          │ 18104 hidream    │
-              │ 8104 hidream     │          │ 18105 qwen21     │
+              │ 8103 ernie       │          │ 18105 qwen21     │
               │ 8105 qwen21      │          │ 18106 moss       │
               │ 8106 moss        │          └──────────────────┘
               └──────────────────┘
@@ -68,7 +66,7 @@
 | `moss-image` | 50 | 3.0 | 1408² 及另外 6 种，约 2 MP | ×16 | 11.7 GB（按 torch 计数器实测） |
 | `ernie-image-turbo` | 8 | 1.0 | 7 种预设 | 否 | 17.2 GB（实测） |
 | `ernie-image` | 50 | 4.0 | 同上 | 否 | 17.2 GB（沿用 turbo 实测） |
-| `hidream-o1` | 50 | 5.0，`shift` 3.0 | 11 种预设，最高 3104×1312 | ×64 | 19.3 GB（实测） |
+| `flux3-klein-full` | 50 | 3.5 | 2048² 及另外 8 种，最大 3072×1312 | ×16 | 36.5 GB（实测；仅限 96 GB 显卡） |
 
 Qwen-Image 2.1 运行在独立的 `qwen21` 后端（单独的 venv：需要 diffusers main 分支的
 `QwenImage21Pipeline` 和 transformers ≥ 5.17）。为了挤进共享的 24 GB 显卡：文本编码器
@@ -90,6 +88,15 @@ worker 以 `HF_HUB_OFFLINE=1` 运行，代码取自固定的快照。文本编�
 
 这两个后端都需要 Python ≥ 3.11（transformers ≥ 5.17）：系统 Python 为 3.10 的节点请为
 `infra/remote-node/bootstrap.sh` 设置 `PYTHON=`。
+
+FLUX.3 Image Klein（`black-forest-labs/flux-3-image-klein-base`，需申请访问）是 `flux3` 后端：
+未蒸馏的基础检查点，所有组件常驻显卡——权重 20.5 GB，峰值 36.5 GB（在 2560×1440 下实测：
+torch 分配约 32 GiB，另加 CUDA 上下文和余量）。24 GB 的卡放不下，因此 `flux3-klein-full`
+只由大显卡节点（示例中为 `node-c`）提供：来自 `infra/big-node` 的 docker 容器，worker 端口
+8104，网关侧经隧道映射到 18304。50 步生成一张 2560×1440 约 113 秒。`negative_prompt` 仅在
+`guidance_scale > 1` 时生效；任意尺寸须为 16 的倍数，单边最大 3072。FLUX.3 自带的 prompt
+上采样器（独立的 9B 模型）不使用：客户端应直接发送完整的场景描述。权重采用 FLUX Kommunity
+License v1.0（非商业用途，另允许年收入低于 500 万美元的用户将生成结果用于商业用途）。
 
 "实测"指用 `scripts/measure_vram.py` 在默认预设下测量，扣除同卡邻居的背景占用，
 再加 5% 余量。校准不是走过场：`qwen-image` 从项目文档里抄来的数字（16 GB）比真实
@@ -141,8 +148,8 @@ ERNIE 后端会在加载时丢弃管线内置的 prompt enhancer（Ministral-3.3
   CUDA 上下文（每个工作进程约 340 MB）的唯一办法；
 * 网关启动时，会先卸载所有工作进程上的一切，然后才开始接活；
 * 每一次干预都记入 `vram_incidents` 表，可通过
-  `GET /api/v1/nodes/{name}/incidents` 查看。我们实际跑出来的记录：
-  `unload hidream-o1 — 释放 16802 MB`、`cancel_orphan`。
+  `GET /api/v1/nodes/{name}/incidents` 查看。记录形如
+  `unload <模型> — 释放 <N> MB` 或 `cancel_orphan`。
 
 ## API
 
@@ -179,7 +186,7 @@ curl -sS "localhost:8010/api/v1/tasks/$TID/wait?timeout=600" -H "X-API-Key: $KEY
 ```python
 from openai import OpenAI
 c = OpenAI(base_url="http://localhost:8010/v1", api_key=KEY)
-r = c.images.generate(model="hidream-o1", prompt="blue whale over a city", size="2048x2048")
+r = c.images.generate(model="qwen-image-2.1", prompt="blue whale over a city", size="2048x2048")
 print(r.data[0].url)
 ```
 
@@ -207,7 +214,7 @@ uv sync                                    # 网关 venv（不含 torch）
 cp .env.example .env                       # 设置 IMG_API_KEYS、IMG_WORKER_TOKEN
 ./scripts/install_worker_into_venvs.sh     # 向每个模型 venv 写入 .pth
 ./scripts/install_systemd.sh               # 单元文件与各工作进程的 env 文件
-sudo systemctl enable --now images-worker@{qwen,zimage,ernie,hidream,qwen21,moss} images-api
+sudo systemctl enable --now images-worker@{qwen,zimage,ernie,qwen21,moss} images-api
 ```
 
 模型项目里除了每个 venv 一个 `.pth` 文件之外什么都没改，用
@@ -218,19 +225,19 @@ sudo systemctl enable --now images-worker@{qwen,zimage,ernie,hidream,qwen21,moss
 ```bash
 # 在主节点：固化版本，然后通过局域网发送代码和权重
 ./scripts/capture_venv_locks.sh
-REMOTE=user@node-b MODELS="hidream zimage" ./scripts/sync_to_node.sh
+REMOTE=user@node-b MODELS="zimage moss" ./scripts/sync_to_node.sh
 
 # 在第二个节点：按同样的版本重建 venv
 cd images-api/infra/remote-node
-BACKENDS="hidream zimage" WORKER_TOKEN=<与网关相同> ./bootstrap.sh
-sudo systemctl enable --now images-worker@hidream images-worker@zimage
+BACKENDS="zimage moss" WORKER_TOKEN=<与网关相同> ./bootstrap.sh
+sudo systemctl enable --now images-worker@zimage images-worker@moss
 
 # 回到主节点：建隧道，然后注册节点——无需重启网关
 sudo systemctl enable --now images-tunnel@node-b
 curl -sS -X POST localhost:8010/api/v1/nodes -H "X-API-Key: $KEY" \
   -H 'Content-Type: application/json' -d '{
     "name":"node-b","kind":"remote",
-    "base_urls":{"hidream":"http://127.0.0.1:18104","zimage":"http://127.0.0.1:18102"},
+    "base_urls":{"zimage":"http://127.0.0.1:18102","moss":"http://127.0.0.1:18106"},
     "vram_reserve_mb":4096,"enabled":false}'
 curl -sS -X POST localhost:8010/api/v1/nodes/node-b/refresh -H "X-API-Key: $KEY"
 curl -sS -X PATCH localhost:8010/api/v1/nodes/node-b -H "X-API-Key: $KEY" \
@@ -251,9 +258,6 @@ diffusers、accelerate、tokenizers、safetensors、huggingface-hub——其余�
 按本地解释器解析。当硬锁定版本不可用时，脚本会在主版本号范围内回退并打印醒目
 警告：悄悄替换依赖栈版本是不行的，那会改变出图结果。在我们的第二个节点上，
 torch 和 transformers 完全一致，只有 numpy 有出入。
-
-`flash-attn` 需要从源码编译，且构建环境中必须已有 torch，因此单独放在最后安装。
-如果编译失败，脚本会在 HiDream 的管线里关闭它——这是上游文档给出的标准绕行方案。
 
 ## 验证
 
@@ -282,8 +286,6 @@ torch 和 transformers 完全一致，只有 numpy 有出入。
 * **`qwen` 的 4:3 预设是 1472×1136**，而不是 1472×1140——1140 不能被 8 整除，
   diffusers 会静默地重新取整。
 * 当服务绑定到非 loopback 地址时，**API 密钥是强制的**。
-* `hidream-o1` 会把任意尺寸吸附到最接近的原生分辨率（请求 1024×1024 会得到
-  2048×2048）。响应里给出的始终是实际尺寸。
 
 ## 配置
 

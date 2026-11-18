@@ -31,9 +31,8 @@ packages = ["src/images_api"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-# Вендорный код HiDream (копия из репозитория модели) и копия worker/ в контексте
-# сборки docker — не наш стиль и не наш исходник.
-extend-exclude = ["infra/big-node/hidream_vendor", "infra/big-node/worker"]
+# Копия worker/ в контексте сборки docker: проверяем оригинал, а не копию.
+extend-exclude = ["infra/big-node/worker"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "N", "C4", "SIM", "RUF"]

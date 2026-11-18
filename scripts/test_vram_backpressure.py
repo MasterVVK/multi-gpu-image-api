@@ -36,7 +36,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PROJECTS_ROOT = os.environ.get("IMG_PROJECTS_ROOT", os.path.expanduser("~"))
 # Любой venv с torch подойдёт: этот процесс только занимает VRAM.
-HOG_VENV = os.environ.get("HOG_PYTHON", f"{PROJECTS_ROOT}/HiDream-O1-Image/venv/bin/python")
+HOG_VENV = os.environ.get("HOG_PYTHON", f"{PROJECTS_ROOT}/Z-Image-Turbo/venv/bin/python")
 
 HOG_CODE = """
 import sys, time

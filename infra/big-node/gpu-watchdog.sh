@@ -26,7 +26,7 @@
 #   # Каталог комплекта на узле (там compose.yml).
 #   REMOTE_DIR=minimax-h3-image
 #   # Необязательно: «локальный порт туннеля:сервис compose» через пробел.
-#   SERVICES="18302:zimage 18303:ernie 18304:hidream 18305:qwen21 18306:moss 18307:worker"
+#   SERVICES="18302:zimage 18303:ernie 18304:flux3 18305:qwen21 18306:moss 18307:worker"
 set -uo pipefail
 
 ENV_FILE="${ENV_FILE:-/etc/images-api/big-node-watchdog.env}"
@@ -44,7 +44,7 @@ REMOTE="${REMOTE_SSH:-}"
 REMOTE_DIR="${REMOTE_DIR:-}"
 [ -n "$REMOTE_DIR" ] || { echo "не задан REMOTE_DIR в $ENV_FILE — каталог комплекта (compose.yml) на узле"; exit 1; }
 # локальный порт туннеля : сервис compose
-SERVICES="${SERVICES:-18302:zimage 18303:ernie 18304:hidream 18305:qwen21 18306:moss 18307:worker}"
+SERVICES="${SERVICES:-18302:zimage 18303:ernie 18304:flux3 18305:qwen21 18306:moss 18307:worker}"
 mkdir -p "$STATE_DIR"
 
 for entry in $SERVICES; do

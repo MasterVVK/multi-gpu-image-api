@@ -1,13 +1,12 @@
-# Воркер генерации: один инстанс на бэкенд (%i = qwen|zimage|ernie|hidream|qwen21|moss).
+# Воркер генерации: один инстанс на бэкенд (%i = qwen|zimage|ernie|qwen21|moss).
 #
 # Почему шаблон, а не юнит на каждый бэкенд: отличаются они ровно одним — путём к venv,
 # а он приходит из EnvironmentFile. Постоянные пути в ExecStart/WorkingDirectory
 # systemd подставлять из переменных не умеет, поэтому запуск идёт через
 # /usr/local/bin/images-worker, который делает exec на нужный интерпретатор.
 #
-# WorkingDirectory намеренно нейтральный: ни один бэкенд не зависит от cwd.
-# Веса берутся из кэша HuggingFace, а вендорный код HiDream подключается
-# явным путём из IMG_HIDREAM_REPO_DIR.
+# WorkingDirectory намеренно нейтральный: ни один бэкенд не зависит от cwd,
+# веса берутся из кэша HuggingFace.
 
 # Пути ниже заданы буквально: systemd не подставляет переменные в
 # WorkingDirectory и ExecStart. Каталог проекта записан как /opt/images-api —

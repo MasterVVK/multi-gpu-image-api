@@ -12,7 +12,7 @@
 
 Запуск (на том узле, который калибруем):
     .venv/bin/python scripts/measure_vram.py
-    .venv/bin/python scripts/measure_vram.py z-image-turbo hidream-o1
+    .venv/bin/python scripts/measure_vram.py z-image-turbo qwen-image-2.1
 """
 
 from __future__ import annotations

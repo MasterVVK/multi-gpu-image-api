@@ -6,19 +6,21 @@
 #   2. DELETE /tasks/{id}   — отмена, память вернуться;
 #   3. рестарт шлюза        — задача НЕ теряется (возвращается в очередь), память вернуться.
 #
-# Модель по умолчанию — hidream-o1: единственная без cpu-offload, то есть
-# единственная, у которой занятость карты видно по nvidia-smi однозначно.
+# Модель по умолчанию — z-image-base (бэкенд zimage). У моделей узла с картой 24 ГБ
+# включён cpu-offload: веса приезжают на карту только на время генерации, поэтому
+# каждый сценарий сначала ждёт статуса generating и только потом роняет задачу.
+# Другую модель задавайте вместе с её бэкендом.
 #
 #   ./scripts/test_failure_vram.sh
-#   MODEL=hidream-o1 SCENARIO=2 ./scripts/test_failure_vram.sh
+#   MODEL=qwen-image-2.1 BACKEND=qwen21 SCENARIO=2 ./scripts/test_failure_vram.sh
 
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 API="${IMG_API:-http://127.0.0.1:8010}"
 KEY="${IMG_KEY:-$(grep -E '^IMG_API_KEYS=' "$ROOT/.env" | cut -d= -f2- | cut -d, -f1)}"
-MODEL="${MODEL:-hidream-o1}"
-BACKEND="${BACKEND:-hidream}"
+MODEL="${MODEL:-z-image-base}"
+BACKEND="${BACKEND:-zimage}"
 SCENARIO="${SCENARIO:-all}"
 # Сторож ждёт IMG_STUCK_VRAM_SECONDS (120) плюс интервал обхода (30).
 RECOVER_WAIT="${RECOVER_WAIT:-200}"
