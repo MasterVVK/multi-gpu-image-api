@@ -70,9 +70,21 @@ class ZImageBackend(Backend):
         )
 
         log.info("building text encoder (Qwen3)")
-        text_encoder = Qwen3ForCausalLM(Qwen3Config(**te_config))
-        text_encoder.load_state_dict(load_file(te_file), strict=False)
-        text_encoder = text_encoder.to(dtype)
+        if spec.cpu_offload:
+            text_encoder = Qwen3ForCausalLM(Qwen3Config(**te_config))
+            text_encoder.load_state_dict(load_file(te_file), strict=False)
+            text_encoder = text_encoder.to(dtype)
+        else:
+            # Большая карта: энкодер собирается сразу на GPU и сразу в bf16 — без
+            # ~16 ГБ fp32 в RAM хоста на время загрузки (RAM узла не трогаем).
+            previous_dtype = torch.get_default_dtype()
+            torch.set_default_dtype(dtype)
+            try:
+                with torch.device("cuda"):
+                    text_encoder = Qwen3ForCausalLM(Qwen3Config(**te_config))
+            finally:
+                torch.set_default_dtype(previous_dtype)
+            text_encoder.load_state_dict(load_file(te_file, device="cuda"), strict=False)
 
         log.info("building VAE")
         vae_model_config = {k: v for k, v in vae_config.items() if not k.startswith("_")}
@@ -91,6 +103,11 @@ class ZImageBackend(Backend):
             tokenizer=tokenizer,
             transformer=transformer,
         )
+        if not spec.cpu_offload:
+            # Большая карта (z-image-base-full): всё на GPU, RAM хоста после
+            # загрузки свободна. dtype компонентов не меняется: VAE остаётся в fp32.
+            pipe.to("cuda")
+            return pipe
         pipe.enable_model_cpu_offload()
         return pipe
 

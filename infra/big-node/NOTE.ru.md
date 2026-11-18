@@ -6,16 +6,18 @@ RTX PRO 6000 96 ГБ, внешний боевой сервер). Подробн�
 
 Отличия от остальных узлов:
 * воркеры работают в docker, а не в systemd с venv; образ `images-worker-minimax` общий
-  у minimax, qwen21 и ernie, у hidream свой (`Dockerfile.hidream`);
+  у minimax, qwen21, ernie, zimage и moss, у hidream свой (`Dockerfile.hidream`);
 * сборочный контекст — каталог с `worker/` внутри: перед сборкой скопировать сюда
   `../../worker` (`rm -rf worker && cp -r ../../worker worker`); копия в git не хранится;
 * карта задаётся UUID в `.env` рядом с `compose.yml` (`IMG_GPU_UUID`, см. `.env.example`),
   токен и имя узла — в `worker.env` (`IMG_WORKER_TOKEN`, `IMG_WORKER_NODE`);
-* модели только «целиком на карте»: у `qwen21` объявлена одна `qwen-image-2.1-full`
-  (`IMG_WORKER_MODELS`), чтобы шлюз не послал туда варианты, держащие энкодер в RAM хоста;
+* модели только «целиком на карте»: каждый сервис объявляет одну модель `*-full`
+  (`IMG_WORKER_MODELS`: `qwen-image-2.1-full`, `ernie-image-full`, `z-image-base-full`,
+  `moss-image-full`), чтобы шлюз не послал туда варианты, держащие энкодер в RAM хоста;
+  веса качают `download-*.sh` (временный контейнер, `./hf` рядом со скриптом);
 * веса лежат в `./hf` на узле, том смонтирован только на чтение, `HF_HUB_OFFLINE=1`;
 * туннель на машине шлюза — инстанс `images-tunnel@node-c` (`/etc/ssh-tunnels/node-c.env`),
-  18303 → ernie, 18304 → hidream, 18305 → qwen21, 18307 → minimax;
+  18302 → zimage, 18303 → ernie, 18304 → hidream, 18305 → qwen21, 18306 → moss, 18307 → minimax;
 * сторож GPU контейнеров — `gpu-watchdog.sh` и `images-big-node-gpu-watchdog.{service,timer}`
   на машине шлюза (установка — в шапке `.service`, настройки — в шапке скрипта).
 

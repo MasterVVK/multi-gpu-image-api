@@ -94,7 +94,7 @@ def test_load_and_unload_never_initialize_cuda(monkeypatch):
 
 
 def test_generate_runs_stages_in_order_and_frees_them(backend, tap):
-    image, seed, seconds = backend.generate(make_job())
+    image, seed, _ = backend.generate(make_job())
 
     assert image.size == (1024, 1024) and image.mode == "RGB"
     assert seed == 7
@@ -112,7 +112,7 @@ def test_generate_runs_stages_in_order_and_frees_them(backend, tap):
     assert load_image[1] == IMAGE and load_image[2] == ()
     loaded_text, loaded_image = [e for e in tap.events if e[0] == "loaded"]
     assert loaded_text[1] == tuple(sorted(TEXT))
-    assert loaded_image[1] == tuple(sorted(IMAGE + ("image_processor",)))
+    assert loaded_image[1] == tuple(sorted((*IMAGE, "image_processor")))
     assert [e[1] for e in tap.events if e[0] == "transformer"] == [0, 1, 2, 3, 4, 5]
     # Запрос 1024x1024 считается на холсте 4 Мп (2048x2048 -> латент 128x128) и уменьшается
     # обратно — это путь через image_processor.resize.

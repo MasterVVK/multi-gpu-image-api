@@ -59,6 +59,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import gc
 import logging
 import os
@@ -166,10 +167,8 @@ class _LoadFailures(logging.Handler):
         self.messages: list[str] = []
 
     def emit(self, record: logging.LogRecord) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self.messages.append(record.getMessage())
-        except Exception:  # pragma: no cover
-            pass
 
 
 def _make_checkpoint(check, stage: str):

@@ -11,7 +11,13 @@ import os
 import sys
 
 import pytest
-from images_worker.registry import BACKENDS, DEFAULT_WORKER_PORTS, MODELS, get_spec, models_for_backend
+from images_worker.registry import (
+    BACKENDS,
+    DEFAULT_WORKER_PORTS,
+    MODELS,
+    get_spec,
+    models_for_backend,
+)
 
 GATEWAY_SRC = os.environ.get("IMG_GATEWAY_SRC", "")
 needs_gateway = pytest.mark.skipif(not GATEWAY_SRC, reason="IMG_GATEWAY_SRC is not set")
@@ -57,7 +63,8 @@ def test_other_models_keep_the_24gb_class():
     for spec in MODELS.values():
         # Модели большого класса перечислены явно: кроме самой MiniMax — Qwen-Image 2.1
         # и ERNIE-Image целиком на карте.
-        if spec.id not in {"minimax-h3-image", "qwen-image-2.1-full", "ernie-image-full"}:
+        if spec.id not in {"minimax-h3-image", "qwen-image-2.1-full", "ernie-image-full",
+                         "z-image-base-full", "moss-image-full"}:
             assert spec.card_class_mb == 24576 and spec.peak_vram_mb < 24576, spec.id
 
 
@@ -78,6 +85,7 @@ def test_presets_resolve_through_aspect_ratio(ratio):
 @needs_gateway
 def test_request_rules():
     import pydantic
+
     from images_api.core.errors import ValidationError
     from images_api.domain.resolve import resolve
     from images_api.domain.schemas import GenerateRequest

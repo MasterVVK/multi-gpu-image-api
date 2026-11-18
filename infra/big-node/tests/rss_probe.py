@@ -3,16 +3,22 @@
 Собирает компоненты среднего размера (сотни МБ) с весами в bf16, как у настоящего чекпойнта,
 и смотрит RssAnon/RssFile процесса после from_pretrained. Каждый вариант — в отдельном процессе.
 """
-import os, sys, subprocess, json
+import json
+import os
+import subprocess
+import sys
+
 import torch
 
 ROOT = sys.argv[1]
 
 def rss():
     out = {}
-    for line in open("/proc/self/status"):
-        if line.startswith(("RssAnon", "RssFile", "RssShmem")):
-            k, v = line.split(":"); out[k] = int(v.split()[0]) // 1024
+    with open("/proc/self/status") as fh:
+        for line in fh:
+            if line.startswith(("RssAnon", "RssFile", "RssShmem")):
+                k, v = line.split(":")
+                out[k] = int(v.split()[0]) // 1024
     return out
 
 def build():
@@ -33,7 +39,6 @@ def build():
     m.save_pretrained(os.path.join(ROOT, "text_encoder"))
 
 def probe(which, mode):
-    before = rss()
     kw = {"dtype": torch.bfloat16}
     if mode == "device_map":
         kw["device_map"] = "cpu"
@@ -44,7 +49,7 @@ def probe(which, mode):
     base = rss()
     m = C.from_pretrained(os.path.join(ROOT, which), **kw)
     loaded = rss()
-    s = sum(float(p.float().abs().sum()) for p in list(m.parameters())[:2000])  # трогаем все страницы
+    sum(float(p.float().abs().sum()) for p in list(m.parameters())[:2000])  # трогаем все страницы
     touched = rss()
     size = sum(p.numel() * p.element_size() for p in m.parameters()) // 2**20
     hooks = sum(1 for mod in m.modules() if hasattr(mod, "_hf_hook"))

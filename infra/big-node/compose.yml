@@ -169,6 +169,102 @@ services:
               device_ids: ["${IMG_GPU_UUID:?задайте IMG_GPU_UUID в .env рядом с compose.yml, см. .env.example}"]
               capabilities: [gpu, compute, utility]
 
+  # Z-Image Base с полными весами, целиком на карте (модель z-image-base-full).
+  # Тот же образ; энкодер Qwen3 собирается сразу на GPU в bf16.
+  # Как у qwen21: через 15 с после картинки выгрузка, через минуту — выход процесса.
+  zimage:
+    image: images-worker-minimax:1
+    container_name: images-worker-zimage
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    env_file: worker.env
+    environment:
+      IMG_WORKER_BACKEND: zimage
+      # Только вариант «всё на карте»: остальные модели бэкенда держат энкодер в RAM хоста.
+      IMG_WORKER_MODELS: z-image-base-full
+      IMG_WORKER_HOST: 0.0.0.0
+      IMG_WORKER_PORT: "8102"
+      IMG_WORKER_IDLE_UNLOAD_S: "15"
+      IMG_WORKER_IDLE_EXIT_S: "60"
+    ports:
+      - "127.0.0.1:8102:8102"
+    volumes:
+      - type: bind
+        source: ./hf
+        target: /hf
+        read_only: true
+        bind:
+          create_host_path: false
+    mem_limit: 32g
+    memswap_limit: 32g
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8102/healthz', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${IMG_GPU_UUID:?задайте IMG_GPU_UUID в .env рядом с compose.yml, см. .env.example}"]
+              capabilities: [gpu, compute, utility]
+
+  # MOSS-Image SFT с полными весами, целиком на карте (модель moss-image-full).
+  # Тот же образ; пайплайн из снапшота весов (custom_pipeline), промпт кодируется на GPU.
+  # Как у qwen21: через 15 с после картинки выгрузка, через минуту — выход процесса.
+  moss:
+    image: images-worker-minimax:1
+    container_name: images-worker-moss
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    env_file: worker.env
+    environment:
+      IMG_WORKER_BACKEND: moss
+      # Только вариант «всё на карте»: остальные модели бэкенда держат энкодер в RAM хоста.
+      IMG_WORKER_MODELS: moss-image-full
+      IMG_WORKER_HOST: 0.0.0.0
+      IMG_WORKER_PORT: "8106"
+      IMG_WORKER_IDLE_UNLOAD_S: "15"
+      IMG_WORKER_IDLE_EXIT_S: "60"
+    ports:
+      - "127.0.0.1:8106:8106"
+    volumes:
+      - type: bind
+        source: ./hf
+        target: /hf
+        read_only: true
+        bind:
+          create_host_path: false
+    mem_limit: 32g
+    memswap_limit: 32g
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8106/healthz', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${IMG_GPU_UUID:?задайте IMG_GPU_UUID в .env рядом с compose.yml, см. .env.example}"]
+              capabilities: [gpu, compute, utility]
+
   # HiDream-O1-Image: и так «вся на карте» (device_map="cuda", ~16 ГБ весов + активации).
   # Свой образ: вендорному коду нужен transformers 4.57, а не 5.x как у остальных.
   # Как у qwen21: через 15 с после картинки выгрузка, через минуту — выход процесса.

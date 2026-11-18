@@ -313,6 +313,16 @@ QWEN_IMAGE_21_TURBO = ModelSpec(
 # Пайплайн свой (pipeline_moss_image.py в репозитории весов), venv общий с qwen21.
 # Рекомендации авторов: 1–2 Мп на картинку, от 50 шагов, CFG 3.0 (3..6), стороны
 # кратны 16. Пресеты взяты на ~2 Мп.
+_MOSS_RATIOS = {
+    "1:1": (1408, 1408),
+    "16:9": (1920, 1088),
+    "9:16": (1088, 1920),
+    "4:3": (1664, 1248),
+    "3:4": (1248, 1664),
+    "3:2": (1728, 1152),
+    "2:3": (1152, 1728),
+}
+
 MOSS_IMAGE = ModelSpec(
     id="moss-image",
     backend="moss",
@@ -323,15 +333,7 @@ MOSS_IMAGE = ModelSpec(
     default_guidance=3.0,
     guidance_param="guidance_scale",
     negative_needs_guidance_above=1.0,
-    aspect_ratios={
-        "1:1": (1408, 1408),
-        "16:9": (1920, 1088),
-        "9:16": (1088, 1920),
-        "4:3": (1664, 1248),
-        "3:4": (1248, 1664),
-        "3:2": (1728, 1152),
-        "2:3": (1152, 1728),
-    },
+    aspect_ratios=dict(_MOSS_RATIOS),
     arbitrary_size=True,
     dim_multiple=16,
     min_dim=512,
@@ -347,6 +349,37 @@ MOSS_IMAGE = ModelSpec(
     seconds_per_step_hint=6.0,
     notes="CFG включён при любом guidance_scale, кроме 1.0 (два прохода на шаг); "
     "пустой negative_prompt допустим.",
+)
+
+# Тот же чекпойнт, все компоненты на карте (энкодер Qwen3.5 16 ГБ, трансформер 9.5 ГБ,
+# VAE в fp32) и промпт кодирует сам пайплайн на GPU: для узла с большой картой, где
+# RAM хоста не трогаем. На 24 ГБ не помещается — такие узлы её не объявляют.
+MOSS_IMAGE_FULL = ModelSpec(
+    id="moss-image-full",
+    backend="moss",
+    display_name="MOSS-Image SFT (всё на карте)",
+    repo_id="OpenMOSS-Team/MOSS-Image-SFT",
+    default_steps=50,
+    max_steps=100,
+    default_guidance=3.0,
+    guidance_param="guidance_scale",
+    negative_needs_guidance_above=1.0,
+    aspect_ratios=dict(_MOSS_RATIOS),
+    arbitrary_size=True,
+    dim_multiple=16,
+    min_dim=512,
+    max_dim=2048,
+    # Замерено 2026-11-18 на RTX PRO 6000 (узел с большой картой), пресет 16:9
+    # (1920x1088), 50 шагов, CFG 3.0: пик ~27060 МБ чистыми по nvidia-smi, +5% и запас
+    # на соседей по карте. Загрузка 62 с, генерация 84 с; RAM хоста +0.35 ГБ.
+    peak_vram_mb=30000,
+    weights_vram_mb=26500,
+    cpu_offload=False,
+    card_class_mb=98304,
+    load_timeout_s=2400,
+    seconds_per_step_hint=2.0,
+    notes="Полные веса, все компоненты на карте: для узла с большой картой. "
+    "Результат тот же, что у moss-image; отличается только размещение.",
 )
 
 # --- Z-Image ----------------------------------------------------------------
@@ -418,6 +451,37 @@ Z_IMAGE_BASE = ModelSpec(
     cpu_offload=True,
     load_timeout_s=1800,
     seconds_per_step_hint=12.0,
+)
+
+# Тот же чекпойнт Z-Image Base, все компоненты на карте (энкодер Qwen3 ~8 ГБ, трансформер
+# ~12 ГБ, VAE в fp32), без cpu_offload: для узла с большой картой. На 24 ГБ не помещается.
+Z_IMAGE_BASE_FULL = ModelSpec(
+    id="z-image-base-full",
+    backend="zimage",
+    display_name="Z-Image Base (всё на карте)",
+    repo_id="DeepBeepMeep/Z-Image",
+    variant="base",
+    files=dict(_ZIMAGE_COMMON_FILES, transformer="ZImageBase_bf16.safetensors"),
+    default_steps=30,
+    max_steps=100,
+    default_guidance=5.0,
+    guidance_param="guidance_scale",
+    aspect_ratios=dict(_ZIMAGE_RATIOS),
+    arbitrary_size=True,
+    dim_multiple=32,
+    min_dim=512,
+    max_dim=2048,
+    # Замерено 2026-11-18 на RTX PRO 6000 (узел с большой картой), пресет 16:9
+    # (1344x768), 30 шагов, CFG 5.0: пик ~21770 МБ чистыми по nvidia-smi. Запас — на
+    # стороны до 2048. Загрузка 39 с, генерация 38 с; RAM хоста +0.8 ГБ.
+    peak_vram_mb=26000,
+    weights_vram_mb=21000,
+    cpu_offload=False,
+    card_class_mb=98304,
+    load_timeout_s=1800,
+    seconds_per_step_hint=2.0,
+    notes="Полные веса, все компоненты на карте: для узла с большой картой. "
+    "Результат тот же, что у z-image-base; отличается только размещение.",
 )
 
 # --- ERNIE-Image ------------------------------------------------------------
@@ -637,8 +701,10 @@ MODELS: dict[str, ModelSpec] = {
         QWEN_IMAGE_21_FULL,
         QWEN_IMAGE_21_TURBO,
         MOSS_IMAGE,
+        MOSS_IMAGE_FULL,
         Z_IMAGE_TURBO,
         Z_IMAGE_BASE,
+        Z_IMAGE_BASE_FULL,
         ERNIE_IMAGE_TURBO,
         ERNIE_IMAGE_SFT,
         ERNIE_IMAGE_FULL,

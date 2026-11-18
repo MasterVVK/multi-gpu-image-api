@@ -145,15 +145,15 @@ def backend(monkeypatch):
 def make_job(task_id: str = "t1", **overrides):
     from images_worker.protocol import GenerateJob
 
-    params = dict(
-        task_id=task_id,
-        model_id="minimax-h3-image",
-        prompt="a red fox in the snow",
-        width=1024,
-        height=1024,
-        num_inference_steps=6,
-        guidance_scale=1.0,
-        seed=7,
-    )
+    params = {
+        "task_id": task_id,
+        "model_id": "minimax-h3-image",
+        "prompt": "a red fox in the snow",
+        "width": 1024,
+        "height": 1024,
+        "num_inference_steps": 6,
+        "guidance_scale": 1.0,
+        "seed": 7,
+    }
     params.update(overrides)
     return GenerateJob(**params)

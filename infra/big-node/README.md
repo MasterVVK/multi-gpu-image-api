@@ -207,7 +207,7 @@ curl -s --max-time 1800 -D headers.txt -o first.png -w 'http=%{http_code} %{size
 cd /путь/к/images-api && pytest tests/test_registry.py tests/test_resolve.py
 
 # 2. туннель: в /etc/ssh-tunnels/node-c.env форварды на порты воркеров узла
-#    (-L 18307:127.0.0.1:8107 — minimax; qwen21, ernie, hidream — 18305, 18303, 18304)
+#    (-L 18307:127.0.0.1:8107 — minimax; qwen21, ernie, hidream, zimage, moss — 18305, 18303, 18304, 18302, 18306)
 sudo systemctl enable --now images-tunnel@node-c
 curl -s 127.0.0.1:18307/healthz
 

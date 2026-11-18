@@ -12,6 +12,8 @@ Venv общий с qwen21 (тот же стек: torch 2.9, свежие diffuse
 Как и у Qwen-Image 2.1, текстовый энкодер (~17 ГБ в bf16) на карту не попадает:
 он живёт в системной RAM в fp32 и кодирует промпт на процессоре. Иначе пик VRAM
 задавал бы он, а не трансформер, и модель не помещалась бы рядом с соседями.
+Исключение — moss-image-full для узла с большой картой: там всё на GPU, и промпт
+кодирует сам пайплайн.
 
 Чего у пайплайна нет и как это закрыто:
   * нет `callback_on_step_end` — отмена задачи встроена в его progress_bar,
@@ -43,7 +45,6 @@ class MossBackend(Backend):
 
     def _load_model(self, spec: ModelSpec):
         from diffusers import DiffusionPipeline
-
         from huggingface_hub import snapshot_download
 
         # Каталог снапшота, а не id репозитория: с custom_pipeline diffusers по id
@@ -61,14 +62,20 @@ class MossBackend(Backend):
         # Из карточки модели: планировщик пересоздаётся из собственного конфига.
         pipe.scheduler = type(pipe.scheduler).from_config(pipe.scheduler.config)
 
-        # Энкодер снимаем с пайплайна до offload-хуков — та же причина, что в qwen21.py.
-        cpu_text_encoder = pipe.text_encoder
-        pipe.register_modules(text_encoder=None)
-        cpu_text_encoder.to(device="cpu", dtype=torch.float32)
-        cpu_text_encoder.eval()
+        if not spec.cpu_offload:
+            # Большая карта (moss-image-full): всё на GPU, энкодер тоже — промпт
+            # кодирует сам пайплайн (_generate отдаёт строки, а не эмбеддинги).
+            pipe.to("cuda")
+            setattr(pipe, _CPU_TE_ATTR, None)
+        else:
+            # Энкодер снимаем с пайплайна до offload-хуков — та же причина, что в qwen21.py.
+            cpu_text_encoder = pipe.text_encoder
+            pipe.register_modules(text_encoder=None)
+            cpu_text_encoder.to(device="cpu", dtype=torch.float32)
+            cpu_text_encoder.eval()
 
-        pipe.enable_model_cpu_offload()
-        setattr(pipe, _CPU_TE_ATTR, cpu_text_encoder)
+            pipe.enable_model_cpu_offload()
+            setattr(pipe, _CPU_TE_ATTR, cpu_text_encoder)
 
         # Точка отмены: пайплайн перебирает шаги через self.progress_bar(...).
         plain_bar = pipe.progress_bar
@@ -113,6 +120,17 @@ class MossBackend(Backend):
         }
 
         self._raise_if_cancelled()
+        if getattr(self._pipe, _CPU_TE_ATTR, None) is None:
+            # Энкодер на карте: пайплайн кодирует промпт сам, своим же шаблоном.
+            kwargs["prompt"] = job.prompt
+            kwargs["negative_prompt"] = job.negative_prompt or ""
+            if job.guidance_scale == 1.0 and job.negative_prompt:
+                log.warning("negative_prompt ignored: guidance_scale=1.0 turns CFG off")
+            result = self._pipe(**kwargs)
+            image = result.images[0]
+            del result
+            return image, seed
+
         kwargs["prompt_embeds"], kwargs["prompt_attention_mask"] = self._encode_on_cpu(job.prompt)
         # CFG у пайплайна включён при любом guidance_scale, кроме 1.0, и тогда ему
         # нужен negative — пустая строка допустима и является его дефолтом.
