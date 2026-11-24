@@ -98,6 +98,11 @@ class WorkerRunner:
         except Exception as exc:
             self.last_error = "load %s: %s" % (model_id, exc)
             raise
+        finally:
+            # Простой считается от конца загрузки, а не от её начала: загрузка идёт
+            # дольше порога (на большой карте — 50–107 с при пороге 15 с), и сторож
+            # иначе видит «простой» сразу, как только модель стала резидентной.
+            self.touch()
         gpu.invalidate()
         return already, elapsed, gpu.gpu_info(force=True)
 
@@ -116,6 +121,12 @@ class WorkerRunner:
             _already, load_time, _gpu = await self.load(job.model_id)
 
         def _run():
+            # Сторож простоя мог встать в GPU-поток между загрузкой и генерацией
+            # и выгрузить модель (24.11.2026, z-image-base-full: «is not resident»).
+            # Здесь, внутри единственного GPU-потока, выгрузка уже не вклинится.
+            if self.backend.resident_model != job.model_id:
+                log.warning("%s was unloaded before generation — loading again", job.model_id)
+                self.backend.load(job.model_id)
             return self.backend.generate(job)
 
         try:
